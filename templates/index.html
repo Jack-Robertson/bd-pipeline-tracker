@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sales Pipeline Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+    <header class="app-header">
+        <h1>Sales Pipeline Tracker</h1>
+        <p>Track leads and generate AI follow-up emails.</p>
+    </header>
+
+    <main class="app-main">
+        <section class="lead-form-section">
+            <h2>Add New Lead</h2>
+            <form id="add-lead-form">
+                <div class="form-row">
+                    <label for="company_name">Company Name</label>
+                    <input id="company_name" name="company_name" type="text" required />
+                </div>
+
+                <div class="form-row">
+                    <label for="contact_name">Contact Name</label>
+                    <input id="contact_name" name="contact_name" type="text" required />
+                </div>
+
+                <div class="form-row">
+                    <label for="email">Email</label>
+                    <input id="email" name="email" type="email" required />
+                </div>
+
+                <div class="form-row">
+                    <label for="notes">Notes</label>
+                    <textarea id="notes" name="notes" rows="3" placeholder="Any relevant context..."></textarea>
+                </div>
+
+                <div class="form-row">
+                    <label for="stage">Stage</label>
+                    <select id="stage" name="stage">
+                        <option value="Prospecting">Prospecting</option>
+                        <option value="Contacted">Contacted</option>
+                        <option value="Demo Scheduled">Demo Scheduled</option>
+                        <option value="Proposal Sent">Proposal Sent</option>
+                        <option value="Closed">Closed</option>
+                    </select>
+                </div>
+
+                <button type="submit">Add Lead</button>
+            </form>
+        </section>
+
+        <section class="kanban-section">
+            <h2>Pipeline Board</h2>
+            <div id="kanban-board" class="kanban-board">
+                <div class="kanban-column" data-stage="Prospecting">
+                    <h3>Prospecting</h3>
+                    <div class="lead-list" id="stage-prospecting"></div>
+                </div>
+
+                <div class="kanban-column" data-stage="Contacted">
+                    <h3>Contacted</h3>
+                    <div class="lead-list" id="stage-contacted"></div>
+                </div>
+
+                <div class="kanban-column" data-stage="Demo Scheduled">
+                    <h3>Demo Scheduled</h3>
+                    <div class="lead-list" id="stage-demo-scheduled"></div>
+                </div>
+
+                <div class="kanban-column" data-stage="Proposal Sent">
+                    <h3>Proposal Sent</h3>
+                    <div class="lead-list" id="stage-proposal-sent"></div>
+                </div>
+
+                <div class="kanban-column" data-stage="Closed">
+                    <h3>Closed</h3>
+                    <div class="lead-list" id="stage-closed"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <section id="email-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="email-modal-title">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="email-modal-title">AI Follow-Up Email</h2>
+                <button id="close-email-modal" class="modal-close" type="button" aria-label="Close">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <label for="email-draft-output">Generated Draft</label>
+                <textarea id="email-draft-output" rows="14" readonly></textarea>
+            </div>
+        </div>
+    </section>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
