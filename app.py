@@ -1,7 +1,10 @@
 import os
 from typing import Any
 
+from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
+
+load_dotenv()
 from google.generativeai import GenerativeModel, configure
 
 from database import PIPELINE_STAGES, get_db_connection, init_db
