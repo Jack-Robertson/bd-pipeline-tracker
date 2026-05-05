@@ -143,8 +143,11 @@ def generate_follow_up_email(lead_id: int):
     payload = request.get_json(silent=True) or {}
     extra_context = (payload.get("extra_context") or "").strip()
 
+    # 1.5 models are removed from many keys; override with GEMINI_MODEL if needed (e.g. gemini-2.0-flash).
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
     configure(api_key=api_key)
-    model = GenerativeModel("gemini-1.5-flash")
+    model = GenerativeModel(model_name)
 
     prompt = f"""
 You are an SDR writing a concise, professional follow-up email.

@@ -1,5 +1,5 @@
 /**
- * Sales pipeline UI: load leads, add lead, change stage, delete, generate AI follow-up.
+ * Sales pipeline UI: load leads, add lead, change stage, delete, generate AI follow-up, drag-and-drop.
  */
 
 const STAGES = [
@@ -56,14 +56,41 @@ function buildStageSelect(currentStage, leadId) {
   )}" aria-label="Move to stage">${options}</select>`;
 }
 
+function attachCardDragHandlers(article, lead) {
+  const grip = article.querySelector(".lead-card__grip");
+  if (!grip) return;
+
+  grip.addEventListener("dragstart", (e) => {
+    e.dataTransfer.setData("text/plain", String(lead.id));
+    e.dataTransfer.effectAllowed = "move";
+    article.classList.add("lead-card--dragging");
+  });
+
+  grip.addEventListener("dragend", () => {
+    article.classList.remove("lead-card--dragging");
+    document.querySelectorAll(".kanban-column").forEach((col) => {
+      col.classList.remove("column--drag-over");
+    });
+  });
+}
+
 function createLeadCard(lead) {
   const article = document.createElement("article");
   article.className = "lead-card";
   article.dataset.leadId = String(lead.id);
+  article.dataset.stage = lead.stage;
 
   const notesText = (lead.notes || "").trim() || "—";
   article.innerHTML = `
-    <h4>${escapeHtml(lead.company_name)}</h4>
+    <div class="lead-card__head">
+      <span
+        class="lead-card__grip"
+        draggable="true"
+        aria-label="Drag to another column"
+        title="Drag to another column"
+      >⋮⋮</span>
+      <h4>${escapeHtml(lead.company_name)}</h4>
+    </div>
     <p>${escapeHtml(lead.contact_name)}</p>
     <p><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></p>
     <p class="lead-notes">Notes: ${escapeHtml(notesText)}</p>
@@ -73,6 +100,8 @@ function createLeadCard(lead) {
       <button type="button" class="delete-btn" data-lead-id="${lead.id}">Delete</button>
     </div>
   `;
+
+  attachCardDragHandlers(article, lead);
   return article;
 }
 
@@ -83,6 +112,20 @@ function clearBoard() {
   });
 }
 
+function updateColumnCounts(leads) {
+  const counts = Object.fromEntries(STAGES.map((s) => [s, 0]));
+  for (const lead of leads) {
+    if (counts[lead.stage] !== undefined) counts[lead.stage] += 1;
+  }
+  document.querySelectorAll(".kanban-column").forEach((column) => {
+    const stage = column.dataset.stage;
+    const badge = column.querySelector(".column-count");
+    if (badge && stage && counts[stage] !== undefined) {
+      badge.textContent = String(counts[stage]);
+    }
+  });
+}
+
 function renderLeads(leads) {
   clearBoard();
   for (const lead of leads) {
@@ -90,6 +133,7 @@ function renderLeads(leads) {
     if (!list) continue;
     list.appendChild(createLeadCard(lead));
   }
+  updateColumnCounts(leads);
 }
 
 async function loadLeads() {
@@ -206,11 +250,54 @@ async function handleDeleteClick(button) {
   }
 }
 
+function initKanbanDragAndDrop() {
+  document.querySelectorAll(".kanban-column").forEach((column) => {
+    column.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      column.classList.add("column--drag-over");
+    });
+
+    column.addEventListener("dragleave", (e) => {
+      if (!column.contains(e.relatedTarget)) {
+        column.classList.remove("column--drag-over");
+      }
+    });
+
+    column.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    });
+
+    column.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      column.classList.remove("column--drag-over");
+
+      const leadId = e.dataTransfer.getData("text/plain");
+      if (!leadId) return;
+
+      const newStage = column.dataset.stage;
+      const card = document.querySelector(`.lead-card[data-lead-id="${leadId}"]`);
+      const oldStage = card?.dataset.stage;
+
+      if (!newStage || oldStage === newStage) return;
+
+      try {
+        await fetchJson(`/api/leads/${leadId}/stage`, {
+          method: "PATCH",
+          body: JSON.stringify({ stage: newStage }),
+        });
+        await loadLeads();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const form = document.getElementById("add-lead-form");
   const board = document.getElementById("kanban-board");
   const closeBtn = document.getElementById("close-email-modal");
-  const modal = document.getElementById("email-modal");
 
   if (form) {
     form.addEventListener("submit", handleAddLeadSubmit);
@@ -237,15 +324,15 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  initKanbanDragAndDrop();
+
   if (closeBtn) {
     closeBtn.addEventListener("click", closeEmailModal);
   }
 
-  if (modal) {
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal) closeEmailModal();
-    });
-  }
+  document.querySelectorAll("[data-modal-dismiss]").forEach((el) => {
+    el.addEventListener("click", closeEmailModal);
+  });
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeEmailModal();
