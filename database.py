@@ -6,8 +6,8 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_DIR = BASE_DIR / "instance"
 DB_PATH = DB_DIR / "pipeline.db"
 
-# Keep stages centralized so backend and frontend stay consistent.
-PIPELINE_STAGES = [
+# Default stages for seeding
+DEFAULT_STAGES = [
     "Prospecting",
     "Contacted",
     "Demo Scheduled",
@@ -16,17 +16,15 @@ PIPELINE_STAGES = [
 ]
 
 # PRAGMA user_version: bump when a one-time migration is added.
-_USER_VERSION_STAGE_NOTES = 2
+_USER_VERSION_DYNAMIC_STAGES = 3
 
-_STAGE_CHECK = """
-    CHECK (stage IN (
-        'Prospecting',
-        'Contacted',
-        'Demo Scheduled',
-        'Proposal Sent',
-        'Closed'
-    ))
-"""
+DEFAULT_STAGES_DATA = [
+    ("Prospecting", 0),
+    ("Contacted", 1),
+    ("Demo Scheduled", 2),
+    ("Proposal Sent", 3),
+    ("Closed", 4),
+]
 
 
 def get_db_connection() -> sqlite3.Connection:
@@ -43,40 +41,58 @@ def _table_columns(connection: sqlite3.Connection, table: str) -> list[str]:
     return [row[1] for row in rows]
 
 
-def _migrate_legacy_notes_to_stage_notes(connection: sqlite3.Connection) -> None:
+def _migrate_to_dynamic_stages(connection: sqlite3.Connection) -> None:
     """
-    One-time migration (user_version < 2):
-    - Copy legacy leads.notes into lead_stage_notes for each lead's current stage.
-    - Drop leads.notes when supported (SQLite 3.35+).
-    New databases use leads without a notes column; this path is a no-op for them.
+    Migration to version 3:
+    - Create stages table with id, name, position
+    - Add notes column to leads table
+    - Migrate existing stage_notes to unified notes
+    - Remove CHECK constraints by recreating tables without them
     """
     current = connection.execute("PRAGMA user_version").fetchone()
     version = int(current[0]) if current is not None else 0
-    if version >= _USER_VERSION_STAGE_NOTES:
+    if version >= _USER_VERSION_DYNAMIC_STAGES:
         return
 
-    lead_cols = _table_columns(connection, "leads")
-    if "notes" in lead_cols:
-        leads = connection.execute(
-            "SELECT id, stage, COALESCE(notes, '') AS notes FROM leads"
-        ).fetchall()
-        for lead in leads:
-            connection.execute(
-                """
-                INSERT INTO lead_stage_notes (lead_id, stage, content)
-                VALUES (?, ?, ?)
-                ON CONFLICT(lead_id, stage) DO UPDATE SET
-                    content = excluded.content
-                """,
-                (lead["id"], lead["stage"], lead["notes"] or ""),
-            )
-        try:
-            connection.execute("ALTER TABLE leads DROP COLUMN notes")
-        except sqlite3.OperationalError:
-            # Older SQLite: column remains unused until a manual migration.
-            pass
+    # Create stages table
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS stages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-    connection.execute(f"PRAGMA user_version = {_USER_VERSION_STAGE_NOTES}")
+    # Seed default stages if empty
+    existing = connection.execute("SELECT COUNT(*) as cnt FROM stages").fetchone()
+    if existing["cnt"] == 0:
+        connection.executemany(
+            "INSERT INTO stages (name, position) VALUES (?, ?)",
+            DEFAULT_STAGES_DATA
+        )
+
+    # Add notes column to leads if it doesn't exist
+    lead_cols = _table_columns(connection, "leads")
+    if "notes" not in lead_cols:
+        connection.execute("ALTER TABLE leads ADD COLUMN notes TEXT DEFAULT ''")
+
+    # Migrate from lead_stage_notes to unified notes (use current stage's notes)
+    if "notes" in lead_cols:
+        # Get leads with their current stage notes
+        leads = connection.execute("""
+            SELECT l.id, l.stage, COALESCE(lsn.content, '') as stage_note
+            FROM leads l
+            LEFT JOIN lead_stage_notes lsn ON lsn.lead_id = l.id AND lsn.stage = l.stage
+        """).fetchall()
+        for lead in leads:
+            if lead["stage_note"]:
+                connection.execute(
+                    "UPDATE leads SET notes = ? WHERE id = ?",
+                    (lead["stage_note"], lead["id"])
+                )
+
+    connection.execute(f"PRAGMA user_version = {_USER_VERSION_DYNAMIC_STAGES}")
 
 
 def init_db() -> None:
@@ -85,24 +101,39 @@ def init_db() -> None:
     Safe to run multiple times.
     """
     with get_db_connection() as connection:
-        # New installs: no legacy `notes` column (stage notes live in lead_stage_notes).
-        connection.execute(
-            f"""
+        # Create stages table (dynamic, user-configurable)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS stages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Seed default stages if empty
+        existing = connection.execute("SELECT COUNT(*) as cnt FROM stages").fetchone()
+        if existing["cnt"] == 0:
+            connection.executemany(
+                "INSERT INTO stages (name, position) VALUES (?, ?)",
+                DEFAULT_STAGES_DATA
+            )
+
+        # Create leads table (no CHECK constraint on stage - free text)
+        connection.execute("""
             CREATE TABLE IF NOT EXISTS leads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 company_name TEXT NOT NULL,
                 contact_name TEXT NOT NULL,
                 email TEXT NOT NULL,
-                stage TEXT NOT NULL DEFAULT 'Prospecting'
-                    {_STAGE_CHECK},
+                stage TEXT NOT NULL DEFAULT 'Prospecting',
+                notes TEXT NOT NULL DEFAULT '',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            """
-        )
+        """)
 
-        connection.execute(
-            """
+        connection.execute("""
             CREATE TRIGGER IF NOT EXISTS leads_updated_at
             AFTER UPDATE ON leads
             FOR EACH ROW
@@ -111,32 +142,27 @@ def init_db() -> None:
                 SET updated_at = CURRENT_TIMESTAMP
                 WHERE id = OLD.id;
             END;
-            """
-        )
+        """)
 
-        connection.execute(
-            f"""
+        # Create lead_stage_notes table (for backward compatibility, but we use leads.notes now)
+        connection.execute("""
             CREATE TABLE IF NOT EXISTS lead_stage_notes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 lead_id INTEGER NOT NULL,
-                stage TEXT NOT NULL {_STAGE_CHECK},
+                stage TEXT NOT NULL,
                 content TEXT NOT NULL DEFAULT '',
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (lead_id, stage),
                 FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
             )
-            """
-        )
+        """)
 
-        connection.execute(
-            """
+        connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_lead_stage_notes_lead_id
             ON lead_stage_notes (lead_id)
-            """
-        )
+        """)
 
-        connection.execute(
-            """
+        connection.execute("""
             CREATE TRIGGER IF NOT EXISTS lead_stage_notes_updated_at
             AFTER UPDATE ON lead_stage_notes
             FOR EACH ROW
@@ -145,11 +171,16 @@ def init_db() -> None:
                 SET updated_at = CURRENT_TIMESTAMP
                 WHERE id = OLD.id;
             END;
-            """
-        )
+        """)
 
-        _migrate_legacy_notes_to_stage_notes(connection)
+        # Run migration for dynamic stages
+        _migrate_to_dynamic_stages(connection)
         connection.commit()
+
+
+def get_default_stages() -> list[str]:
+    """Return the list of default stage names."""
+    return DEFAULT_STAGES.copy()
 
 
 if __name__ == "__main__":

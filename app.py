@@ -8,7 +8,7 @@ from flask import Flask, jsonify, render_template, request
 load_dotenv()
 from google.generativeai import GenerativeModel, configure
 
-from database import PIPELINE_STAGES, get_db_connection, init_db
+from database import get_db_connection, init_db
 
 
 app = Flask(__name__, instance_relative_config=True)
@@ -19,44 +19,28 @@ def home():
     return render_template("index.html")
 
 
-def _default_stage_notes() -> dict[str, str]:
-    return {stage: "" for stage in PIPELINE_STAGES}
+def lead_row_to_dict(row: Any) -> dict:
+    """Convert a lead row to API response dict."""
+    return {
+        "id": row["id"],
+        "company_name": row["company_name"],
+        "contact_name": row["contact_name"],
+        "email": row["email"],
+        "stage": row["stage"],
+        "notes": row["notes"] or "",
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
 
 
-def _fetch_stage_notes_dict(connection: sqlite3.Connection, lead_id: int) -> dict[str, str]:
-    notes = _default_stage_notes()
-    rows = connection.execute(
-        "SELECT stage, content FROM lead_stage_notes WHERE lead_id = ?",
-        (lead_id,),
-    ).fetchall()
-    for row in rows:
-        stage = row["stage"]
-        if stage in notes:
-            notes[stage] = row["content"] or ""
-    return notes
-
-
-def _fetch_stage_notes_for_leads(
-    connection: sqlite3.Connection, lead_ids: list[int]
-) -> dict[int, dict[str, str]]:
-    if not lead_ids:
-        return {}
-    result = {lid: _default_stage_notes() for lid in lead_ids}
-    placeholders = ",".join("?" * len(lead_ids))
-    rows = connection.execute(
-        f"""
-        SELECT lead_id, stage, content
-        FROM lead_stage_notes
-        WHERE lead_id IN ({placeholders})
-        """,
-        lead_ids,
-    ).fetchall()
-    for row in rows:
-        lead_id = row["lead_id"]
-        stage = row["stage"]
-        if lead_id in result and stage in result[lead_id]:
-            result[lead_id][stage] = row["content"] or ""
-    return result
+def get_lead_or_404(lead_id: int):
+    """Return lead row or None if not found."""
+    with get_db_connection() as connection:
+        lead = connection.execute(
+            "SELECT * FROM leads WHERE id = ?",
+            (lead_id,),
+        ).fetchone()
+    return lead
 
 
 def _format_user_context_prompt(user_ctx: Any) -> str:
@@ -84,50 +68,160 @@ def _format_user_context_prompt(user_ctx: Any) -> str:
     )
 
 
-def lead_row_core(row: Any) -> dict:
-    """Lead columns from `leads` table only (no nested notes)."""
-    return {
-        "id": row["id"],
-        "company_name": row["company_name"],
-        "contact_name": row["contact_name"],
-        "email": row["email"],
-        "stage": row["stage"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
-    }
-
-
-def lead_with_stage_notes(connection: sqlite3.Connection, row: Any) -> dict:
-    """API shape: core lead fields + stage_notes map."""
-    payload = lead_row_core(row)
-    payload["stage_notes"] = _fetch_stage_notes_dict(connection, row["id"])
-    return payload
-
-
-def get_lead_or_404(lead_id: int):
-    """Return lead row or None if not found."""
+# Stage API endpoints
+@app.route("/api/stages", methods=["GET"])
+def get_stages():
     with get_db_connection() as connection:
-        lead = connection.execute(
-            "SELECT * FROM leads WHERE id = ?",
-            (lead_id,),
+        rows = connection.execute(
+            "SELECT id, name, position FROM stages ORDER BY position ASC"
+        ).fetchall()
+    return jsonify([{"id": row["id"], "name": row["name"], "position": row["position"]} for row in rows]), 200
+
+
+@app.route("/api/stages", methods=["POST"])
+def add_stage():
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+
+    if not name:
+        return jsonify({"error": "Stage name is required."}), 400
+
+    with get_db_connection() as connection:
+        # Check for duplicate
+        existing = connection.execute(
+            "SELECT id FROM stages WHERE LOWER(name) = LOWER(?)",
+            (name,),
         ).fetchone()
-    return lead
+        if existing:
+            return jsonify({"error": "A stage with this name already exists."}), 409
+
+        # Get max position
+        max_pos = connection.execute(
+            "SELECT MAX(position) as max_pos FROM stages"
+        ).fetchone()
+        new_position = (max_pos["max_pos"] or 0) + 1
+
+        cursor = connection.execute(
+            "INSERT INTO stages (name, position) VALUES (?, ?)",
+            (name, new_position),
+        )
+        new_id = cursor.lastrowid
+        connection.commit()
+
+        new_stage = connection.execute(
+            "SELECT id, name, position FROM stages WHERE id = ?",
+            (new_id,),
+        ).fetchone()
+
+    return jsonify({"id": new_stage["id"], "name": new_stage["name"], "position": new_stage["position"]}), 201
 
 
+@app.route("/api/stages/<int:stage_id>", methods=["PATCH"])
+def update_stage(stage_id: int):
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+
+    if not name:
+        return jsonify({"error": "Stage name is required."}), 400
+
+    with get_db_connection() as connection:
+        # Check if stage exists
+        existing = connection.execute(
+            "SELECT id FROM stages WHERE id = ?",
+            (stage_id,),
+        ).fetchone()
+        if not existing:
+            return jsonify({"error": "Stage not found."}), 404
+
+        # Check for duplicate name (excluding current stage)
+        duplicate = connection.execute(
+            "SELECT id FROM stages WHERE LOWER(name) = LOWER(?) AND id != ?",
+            (name, stage_id),
+        ).fetchone()
+        if duplicate:
+            return jsonify({"error": "A stage with this name already exists."}), 409
+
+        connection.execute(
+            "UPDATE stages SET name = ? WHERE id = ?",
+            (name, stage_id),
+        )
+        # Also update any leads using this stage name
+        connection.execute(
+            "UPDATE leads SET stage = ? WHERE stage = (SELECT name FROM stages WHERE id = ?)",
+            (name, stage_id),
+        )
+        connection.commit()
+
+    return jsonify({"id": stage_id, "name": name}), 200
+
+
+@app.route("/api/stages/<int:stage_id>", methods=["DELETE"])
+def delete_stage(stage_id: int):
+    with get_db_connection() as connection:
+        # Check if stage exists
+        stage = connection.execute(
+            "SELECT name FROM stages WHERE id = ?",
+            (stage_id,),
+        ).fetchone()
+        if not stage:
+            return jsonify({"error": "Stage not found."}), 404
+
+        # Check if any leads are in this stage
+        lead_count = connection.execute(
+            "SELECT COUNT(*) as cnt FROM leads WHERE stage = ?",
+            (stage["name"],),
+        ).fetchone()
+        if lead_count["cnt"] > 0:
+            return jsonify({"error": "Cannot delete stage that has leads. Move leads to another stage first."}), 400
+
+        connection.execute(
+            "DELETE FROM stages WHERE id = ?",
+            (stage_id,),
+        )
+        connection.commit()
+
+    return jsonify({"message": "Stage deleted successfully."}), 200
+
+
+@app.route("/api/stages/reorder", methods=["POST"])
+def reorder_stages():
+    payload = request.get_json(silent=True) or {}
+    order = payload.get("order", [])
+
+    if not isinstance(order, list) or len(order) == 0:
+        return jsonify({"error": "Order array is required."}), 400
+
+    with get_db_connection() as connection:
+        for position, stage_id in enumerate(order):
+            connection.execute(
+                "UPDATE stages SET position = ? WHERE id = ?",
+                (position, stage_id),
+            )
+        connection.commit()
+
+    return jsonify({"message": "Stages reordered."}), 200
+
+
+# Lead API endpoints
 @app.route("/api/leads", methods=["GET"])
 def get_all_leads():
     with get_db_connection() as connection:
         rows = connection.execute(
             "SELECT * FROM leads ORDER BY created_at DESC, id DESC"
         ).fetchall()
-        lead_ids = [row["id"] for row in rows]
-        notes_by_lead = _fetch_stage_notes_for_leads(connection, lead_ids)
-        payload = []
-        for row in rows:
-            core = lead_row_core(row)
-            core["stage_notes"] = notes_by_lead.get(row["id"], _default_stage_notes())
-            payload.append(core)
-    return jsonify(payload), 200
+    return jsonify([lead_row_to_dict(row) for row in rows]), 200
+
+
+@app.route("/api/leads/<int:lead_id>", methods=["GET"])
+def get_lead(lead_id: int):
+    with get_db_connection() as connection:
+        row = connection.execute(
+            "SELECT * FROM leads WHERE id = ?",
+            (lead_id,),
+        ).fetchone()
+    if not row:
+        return jsonify({"error": "Lead not found."}), 404
+    return jsonify(lead_row_to_dict(row)), 200
 
 
 @app.route("/api/leads", methods=["POST"])
@@ -141,59 +235,89 @@ def add_lead():
 
     if not company_name or not contact_name or not email:
         return (
-            jsonify(
-                {
-                    "error": "company_name, contact_name, and email are required.",
-                }
-            ),
+            jsonify({"error": "company_name, contact_name, and email are required."}),
             400,
         )
-
-    if stage not in PIPELINE_STAGES:
-        return jsonify({"error": f"Invalid stage. Use one of: {PIPELINE_STAGES}"}), 400
 
     with get_db_connection() as connection:
         cursor = connection.execute(
             """
-            INSERT INTO leads (company_name, contact_name, email, stage)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO leads (company_name, contact_name, email, stage, notes)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (company_name, contact_name, email, stage),
+            (company_name, contact_name, email, stage, notes),
         )
         new_id = cursor.lastrowid
-        if notes:
-            connection.execute(
-                """
-                INSERT INTO lead_stage_notes (lead_id, stage, content)
-                VALUES (?, ?, ?)
-                ON CONFLICT(lead_id, stage) DO UPDATE SET
-                    content = excluded.content
-                """,
-                (new_id, stage, notes),
-            )
         connection.commit()
         new_lead = connection.execute(
             "SELECT * FROM leads WHERE id = ?",
             (new_id,),
         ).fetchone()
-        body = lead_with_stage_notes(connection, new_lead)
 
-    return jsonify(body), 201
+    return jsonify(lead_row_to_dict(new_lead)), 201
+
+
+@app.route("/api/leads/<int:lead_id>", methods=["PATCH"])
+def update_lead(lead_id: int):
+    lead = get_lead_or_404(lead_id)
+    if not lead:
+        return jsonify({"error": "Lead not found."}), 404
+
+    payload = request.get_json(silent=True) or {}
+
+    with get_db_connection() as connection:
+        # Update fields if provided
+        updates = []
+        values = []
+
+        if "stage" in payload:
+            stage = (payload["stage"] or "").strip()
+            if stage:
+                updates.append("stage = ?")
+                values.append(stage)
+
+        if "company_name" in payload:
+            company_name = (payload["company_name"] or "").strip()
+            updates.append("company_name = ?")
+            values.append(company_name)
+
+        if "contact_name" in payload:
+            contact_name = (payload["contact_name"] or "").strip()
+            updates.append("contact_name = ?")
+            values.append(contact_name)
+
+        if "email" in payload:
+            email = (payload["email"] or "").strip()
+            updates.append("email = ?")
+            values.append(email)
+
+        if updates:
+            values.append(lead_id)
+            connection.execute(
+                f"UPDATE leads SET {', '.join(updates)} WHERE id = ?",
+                tuple(values),
+            )
+            connection.commit()
+
+        updated_lead = connection.execute(
+            "SELECT * FROM leads WHERE id = ?",
+            (lead_id,),
+        ).fetchone()
+
+    return jsonify(lead_row_to_dict(updated_lead)), 200
 
 
 @app.route("/api/leads/<int:lead_id>/stage", methods=["PATCH"])
 def update_lead_stage(lead_id: int):
+    lead = get_lead_or_404(lead_id)
+    if not lead:
+        return jsonify({"error": "Lead not found."}), 404
+
     payload = request.get_json(silent=True) or {}
     stage = (payload.get("stage") or "").strip()
 
     if not stage:
         return jsonify({"error": "stage is required."}), 400
-
-    if stage not in PIPELINE_STAGES:
-        return jsonify({"error": f"Invalid stage. Use one of: {PIPELINE_STAGES}"}), 400
-
-    if not get_lead_or_404(lead_id):
-        return jsonify({"error": "Lead not found."}), 404
 
     with get_db_connection() as connection:
         connection.execute(
@@ -205,23 +329,19 @@ def update_lead_stage(lead_id: int):
             "SELECT * FROM leads WHERE id = ?",
             (lead_id,),
         ).fetchone()
-        body = lead_with_stage_notes(connection, updated_lead)
 
-    return jsonify(body), 200
+    return jsonify(lead_row_to_dict(updated_lead)), 200
 
 
 @app.route("/api/leads/<int:lead_id>/notes", methods=["PATCH"])
-def update_lead_stage_notes(lead_id: int):
-    if not get_lead_or_404(lead_id):
+def update_lead_notes(lead_id: int):
+    lead = get_lead_or_404(lead_id)
+    if not lead:
         return jsonify({"error": "Lead not found."}), 404
 
     payload = request.get_json(silent=True) or {}
-    stage = (payload.get("stage") or "").strip()
     if "content" not in payload:
         return jsonify({"error": "content is required (use empty string to clear)."}), 400
-
-    if stage not in PIPELINE_STAGES:
-        return jsonify({"error": f"Invalid stage. Use one of: {PIPELINE_STAGES}"}), 400
 
     content = payload["content"]
     if content is None:
@@ -231,35 +351,29 @@ def update_lead_stage_notes(lead_id: int):
 
     with get_db_connection() as connection:
         connection.execute(
-            """
-            INSERT INTO lead_stage_notes (lead_id, stage, content)
-            VALUES (?, ?, ?)
-            ON CONFLICT(lead_id, stage) DO UPDATE SET
-                content = excluded.content
-            """,
-            (lead_id, stage, content),
+            "UPDATE leads SET notes = ? WHERE id = ?",
+            (content, lead_id),
         )
         connection.commit()
         row = connection.execute(
             "SELECT * FROM leads WHERE id = ?",
             (lead_id,),
         ).fetchone()
-        body = lead_with_stage_notes(connection, row)
 
-    return jsonify(body), 200
+    return jsonify(lead_row_to_dict(row)), 200
 
 
-@app.route("/api/leads/<int:lead_id>", methods=["GET"])
-def get_lead(lead_id: int):
-    with get_db_connection() as connection:
-        row = connection.execute(
-            "SELECT * FROM leads WHERE id = ?",
-            (lead_id,),
-        ).fetchone()
-    if not row:
+@app.route("/api/leads/<int:lead_id>", methods=["DELETE"])
+def delete_lead(lead_id: int):
+    lead = get_lead_or_404(lead_id)
+    if not lead:
         return jsonify({"error": "Lead not found."}), 404
-    body = lead_with_stage_notes(connection, row)
-    return jsonify(body), 200
+
+    with get_db_connection() as connection:
+        connection.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
+        connection.commit()
+
+    return jsonify({"message": "Lead deleted successfully."}), 200
 
 
 @app.route("/api/leads/<int:lead_id>/research", methods=["POST"])
@@ -275,11 +389,6 @@ def research_lead(lead_id: int):
     payload = request.get_json(silent=True) or {}
     user_ctx = payload.get("user_context")
 
-    with get_db_connection() as connection:
-        stage_notes = _fetch_stage_notes_dict(connection, lead_id)
-    current_stage = lead["stage"]
-    existing_notes = stage_notes.get(current_stage, "") or ""
-
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
     configure(api_key=api_key)
@@ -287,8 +396,7 @@ def research_lead(lead_id: int):
 
     seller_lines = _format_user_context_prompt(user_ctx)
 
-    prompt = f"""
-You are an expert sales researcher analyzing a target company for an SDR.
+    prompt = f"""You are an expert sales researcher. Analyze this target company and return ONLY the following four sections in this exact format. No preamble, no sign-off, no filler.
 
 {seller_lines}
 
@@ -296,13 +404,18 @@ Target company: {lead["company_name"]}
 Contact name: {lead["contact_name"]}
 Contact email: {lead["email"]}
 
-Research and provide:
-1. What the company does (products/services, industry, target market)
-2. The contact's likely role and responsibilities based on their name and context
-3. Pain points relevant to what the seller is offering
-4. Suggested talking points for outreach
+Return EXACTLY this format:
 
-Be specific and actionable. Focus on insights that would help personalize a sales conversation.
+• What they do: [one sentence]
+• Contact's role: [one sentence]
+• Their likely pain points:
+  - [bullet, max 10 words]
+  - [bullet, max 10 words]
+  - [bullet, max 10 words]
+• Talking points:
+  - [bullet tied to what seller sells, max 10 words]
+  - [bullet tied to what seller sells, max 10 words]
+  - [bullet tied to what seller sells, max 10 words]
 """
 
     try:
@@ -314,43 +427,7 @@ Be specific and actionable. Focus on insights that would help personalize a sale
     if not research_text:
         return jsonify({"error": "Gemini returned an empty response."}), 502
 
-    # Determine the new notes content
-    if not existing_notes:
-        new_notes = research_text
-    else:
-        new_notes = f"{existing_notes}\n\n---\n\n{research_text}"
-
-    # Save the research to the current stage notes
-    with get_db_connection() as connection:
-        connection.execute(
-            """
-            INSERT INTO lead_stage_notes (lead_id, stage, content)
-            VALUES (?, ?, ?)
-            ON CONFLICT(lead_id, stage) DO UPDATE SET
-                content = excluded.content
-            """,
-            (lead_id, current_stage, new_notes),
-        )
-        connection.commit()
-        row = connection.execute(
-            "SELECT * FROM leads WHERE id = ?",
-            (lead_id,),
-        ).fetchone()
-        body = lead_with_stage_notes(connection, row)
-
-    return jsonify({"lead": body, "research": research_text}), 200
-
-
-@app.route("/api/leads/<int:lead_id>", methods=["DELETE"])
-def delete_lead(lead_id: int):
-    if not get_lead_or_404(lead_id):
-        return jsonify({"error": "Lead not found."}), 404
-
-    with get_db_connection() as connection:
-        connection.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
-        connection.commit()
-
-    return jsonify({"message": "Lead deleted successfully."}), 200
+    return jsonify({"lead_id": lead_id, "research": research_text}), 200
 
 
 @app.route("/api/leads/<int:lead_id>/generate-follow-up", methods=["POST"])
@@ -367,10 +444,9 @@ def generate_follow_up_email(lead_id: int):
     extra_context = (payload.get("extra_context") or "").strip()
     user_ctx = payload.get("user_context")
 
-    with get_db_connection() as connection:
-        stage_notes = _fetch_stage_notes_dict(connection, lead_id)
     current_stage = lead["stage"]
-    notes_for_stage = stage_notes.get(current_stage, "") or "No notes for this stage yet."
+    notes = lead["notes"] or ""
+    notes_text = notes if notes else "No notes yet."
 
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
@@ -379,8 +455,7 @@ def generate_follow_up_email(lead_id: int):
 
     seller_lines = _format_user_context_prompt(user_ctx)
 
-    prompt = f"""
-You are an SDR writing a concise, professional follow-up email.
+    prompt = f"""You are an SDR writing a concise, professional follow-up email.
 
 {seller_lines}
 
@@ -389,7 +464,7 @@ Lead details:
 - Contact: {lead["contact_name"]}
 - Email: {lead["email"]}
 - Current stage: {current_stage}
-- Notes (this stage only): {notes_for_stage}
+- Notes: {notes_text}
 
 Additional instructions from sender:
 {extra_context or "None"}
@@ -398,9 +473,7 @@ Write:
 1) Email subject line
 2) Email body
 
-Speak in the seller's voice, reference their offering when relevant, and keep the message specific (not boilerplate).
-
-Keep it polite, specific, and actionable with a clear CTA.
+Speak in the seller's voice. Reference their offering when relevant. Make the email feel specific to the {current_stage} stage of the sales process. Keep it polite, specific, and actionable with a clear CTA.
 """
 
     try:
