@@ -80,7 +80,8 @@ function createLeadCard(lead) {
   article.dataset.leadId = String(lead.id);
   article.dataset.stage = lead.stage;
 
-  const notesText = (lead.notes || "").trim() || "—";
+  const stageNotes = lead.stage_notes && typeof lead.stage_notes === "object" ? lead.stage_notes : {};
+  const notesText = (stageNotes[lead.stage] || "").trim() || "—";
   article.innerHTML = `
     <div class="lead-card__head">
       <span

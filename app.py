@@ -1,4 +1,5 @@
 import os
+import sqlite3
 from typing import Any
 
 from dotenv import load_dotenv
@@ -18,18 +19,64 @@ def home():
     return render_template("index.html")
 
 
-def row_to_dict(row: Any) -> dict:
-    """Convert sqlite row object to a standard dict."""
+def _default_stage_notes() -> dict[str, str]:
+    return {stage: "" for stage in PIPELINE_STAGES}
+
+
+def _fetch_stage_notes_dict(connection: sqlite3.Connection, lead_id: int) -> dict[str, str]:
+    notes = _default_stage_notes()
+    rows = connection.execute(
+        "SELECT stage, content FROM lead_stage_notes WHERE lead_id = ?",
+        (lead_id,),
+    ).fetchall()
+    for row in rows:
+        stage = row["stage"]
+        if stage in notes:
+            notes[stage] = row["content"] or ""
+    return notes
+
+
+def _fetch_stage_notes_for_leads(
+    connection: sqlite3.Connection, lead_ids: list[int]
+) -> dict[int, dict[str, str]]:
+    if not lead_ids:
+        return {}
+    result = {lid: _default_stage_notes() for lid in lead_ids}
+    placeholders = ",".join("?" * len(lead_ids))
+    rows = connection.execute(
+        f"""
+        SELECT lead_id, stage, content
+        FROM lead_stage_notes
+        WHERE lead_id IN ({placeholders})
+        """,
+        lead_ids,
+    ).fetchall()
+    for row in rows:
+        lead_id = row["lead_id"]
+        stage = row["stage"]
+        if lead_id in result and stage in result[lead_id]:
+            result[lead_id][stage] = row["content"] or ""
+    return result
+
+
+def lead_row_core(row: Any) -> dict:
+    """Lead columns from `leads` table only (no nested notes)."""
     return {
         "id": row["id"],
         "company_name": row["company_name"],
         "contact_name": row["contact_name"],
         "email": row["email"],
-        "notes": row["notes"],
         "stage": row["stage"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+
+
+def lead_with_stage_notes(connection: sqlite3.Connection, row: Any) -> dict:
+    """API shape: core lead fields + stage_notes map."""
+    payload = lead_row_core(row)
+    payload["stage_notes"] = _fetch_stage_notes_dict(connection, row["id"])
+    return payload
 
 
 def get_lead_or_404(lead_id: int):
@@ -48,7 +95,14 @@ def get_all_leads():
         rows = connection.execute(
             "SELECT * FROM leads ORDER BY created_at DESC, id DESC"
         ).fetchall()
-    return jsonify([row_to_dict(row) for row in rows]), 200
+        lead_ids = [row["id"] for row in rows]
+        notes_by_lead = _fetch_stage_notes_for_leads(connection, lead_ids)
+        payload = []
+        for row in rows:
+            core = lead_row_core(row)
+            core["stage_notes"] = notes_by_lead.get(row["id"], _default_stage_notes())
+            payload.append(core)
+    return jsonify(payload), 200
 
 
 @app.route("/api/leads", methods=["POST"])
@@ -76,18 +130,30 @@ def add_lead():
     with get_db_connection() as connection:
         cursor = connection.execute(
             """
-            INSERT INTO leads (company_name, contact_name, email, notes, stage)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO leads (company_name, contact_name, email, stage)
+            VALUES (?, ?, ?, ?)
             """,
-            (company_name, contact_name, email, notes, stage),
+            (company_name, contact_name, email, stage),
         )
+        new_id = cursor.lastrowid
+        if notes:
+            connection.execute(
+                """
+                INSERT INTO lead_stage_notes (lead_id, stage, content)
+                VALUES (?, ?, ?)
+                ON CONFLICT(lead_id, stage) DO UPDATE SET
+                    content = excluded.content
+                """,
+                (new_id, stage, notes),
+            )
         connection.commit()
         new_lead = connection.execute(
             "SELECT * FROM leads WHERE id = ?",
-            (cursor.lastrowid,),
+            (new_id,),
         ).fetchone()
+        body = lead_with_stage_notes(connection, new_lead)
 
-    return jsonify(row_to_dict(new_lead)), 201
+    return jsonify(body), 201
 
 
 @app.route("/api/leads/<int:lead_id>/stage", methods=["PATCH"])
@@ -114,8 +180,48 @@ def update_lead_stage(lead_id: int):
             "SELECT * FROM leads WHERE id = ?",
             (lead_id,),
         ).fetchone()
+        body = lead_with_stage_notes(connection, updated_lead)
 
-    return jsonify(row_to_dict(updated_lead)), 200
+    return jsonify(body), 200
+
+
+@app.route("/api/leads/<int:lead_id>/notes", methods=["PATCH"])
+def update_lead_stage_notes(lead_id: int):
+    if not get_lead_or_404(lead_id):
+        return jsonify({"error": "Lead not found."}), 404
+
+    payload = request.get_json(silent=True) or {}
+    stage = (payload.get("stage") or "").strip()
+    if "content" not in payload:
+        return jsonify({"error": "content is required (use empty string to clear)."}), 400
+
+    if stage not in PIPELINE_STAGES:
+        return jsonify({"error": f"Invalid stage. Use one of: {PIPELINE_STAGES}"}), 400
+
+    content = payload["content"]
+    if content is None:
+        content = ""
+    elif not isinstance(content, str):
+        content = str(content)
+
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO lead_stage_notes (lead_id, stage, content)
+            VALUES (?, ?, ?)
+            ON CONFLICT(lead_id, stage) DO UPDATE SET
+                content = excluded.content
+            """,
+            (lead_id, stage, content),
+        )
+        connection.commit()
+        row = connection.execute(
+            "SELECT * FROM leads WHERE id = ?",
+            (lead_id,),
+        ).fetchone()
+        body = lead_with_stage_notes(connection, row)
+
+    return jsonify(body), 200
 
 
 @app.route("/api/leads/<int:lead_id>", methods=["DELETE"])
@@ -143,7 +249,11 @@ def generate_follow_up_email(lead_id: int):
     payload = request.get_json(silent=True) or {}
     extra_context = (payload.get("extra_context") or "").strip()
 
-    # 1.5 models are removed from many keys; override with GEMINI_MODEL if needed (e.g. gemini-2.0-flash).
+    with get_db_connection() as connection:
+        stage_notes = _fetch_stage_notes_dict(connection, lead_id)
+    current_stage = lead["stage"]
+    notes_for_stage = stage_notes.get(current_stage, "") or "No notes for this stage yet."
+
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
     configure(api_key=api_key)
@@ -156,8 +266,8 @@ Lead details:
 - Company: {lead["company_name"]}
 - Contact: {lead["contact_name"]}
 - Email: {lead["email"]}
-- Current stage: {lead["stage"]}
-- Notes: {lead["notes"] or "No notes provided."}
+- Current stage: {current_stage}
+- Notes (this stage only): {notes_for_stage}
 
 Additional context from user:
 {extra_context or "None"}
