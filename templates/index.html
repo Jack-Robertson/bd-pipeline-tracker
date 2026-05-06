@@ -8,9 +8,55 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+    <script>
+(function () {
+  var ready = false;
+  try {
+    var raw = localStorage.getItem("pipelineUserProfile");
+    if (raw) {
+      var p = JSON.parse(raw);
+      function t(v) {
+        return String(v || "").trim();
+      }
+      ready =
+        !!t(p.userName) && !!t(p.jobTitle) && !!t(p.companyName) && !!t(p.selling);
+    }
+  } catch (e) {}
+  document.documentElement.classList.toggle("profile-ready", ready);
+})();
+    </script>
 </head>
 <body>
-    <div class="app-shell">
+    <div id="profile-onboarding" class="profile-onboarding" role="dialog" aria-modal="true" aria-labelledby="profile-onboarding-title">
+        <div class="profile-onboarding__panel">
+            <h2 id="profile-onboarding-title" class="profile-onboarding__title">Welcome — set up your workspace</h2>
+            <p class="profile-onboarding__lede">We use this for AI emails and research so outreach sounds like you.</p>
+            <form id="profile-setup-form" class="profile-setup-form" novalidate>
+                <div class="form-row">
+                    <label for="profile_user_name">Your name</label>
+                    <input id="profile_user_name" name="userName" type="text" autocomplete="name" required placeholder="Alex Rivera" />
+                </div>
+                <div class="form-row">
+                    <label for="profile_job_title">Job title</label>
+                    <input id="profile_job_title" name="jobTitle" type="text" autocomplete="organization-title" required placeholder="Account Executive" />
+                </div>
+                <div class="form-row">
+                    <label for="profile_company_name">Company you represent</label>
+                    <input id="profile_company_name" name="companyName" type="text" autocomplete="organization" required placeholder="Northstar SaaS" />
+                </div>
+                <div class="form-row">
+                    <label for="profile_selling">What you're selling</label>
+                    <textarea id="profile_selling" name="selling" rows="4" required placeholder="e.g. Workforce analytics platform for mid-market HR teams"></textarea>
+                </div>
+                <div class="profile-setup-form__actions">
+                    <button type="button" id="profile-cancel-btn" class="btn btn--secondary profile-cancel-btn hidden">Cancel</button>
+                    <button type="submit" id="profile-save-btn" class="btn btn--primary profile-save-btn">Save & continue</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="main-app-shell" class="app-shell">
         <header class="app-header">
             <div class="app-header__inner">
                 <div class="app-brand">
@@ -20,6 +66,7 @@
                         <p>Track deals and draft follow-ups in one place.</p>
                     </div>
                 </div>
+                <button type="button" id="open-profile-setup" class="btn btn--header">Edit profile</button>
             </div>
         </header>
 

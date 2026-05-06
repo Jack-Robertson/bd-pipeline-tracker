@@ -59,6 +59,31 @@ def _fetch_stage_notes_for_leads(
     return result
 
 
+def _format_user_context_prompt(user_ctx: Any) -> str:
+    """Human-readable seller block for Gemini prompts."""
+    if not isinstance(user_ctx, dict):
+        return (
+            "Seller profile:\n"
+            "(No profile provided — use a neutral professional voice.)\n"
+        )
+    name = str(user_ctx.get("user_name") or "").strip()
+    title = str(user_ctx.get("job_title") or "").strip()
+    company = str(user_ctx.get("company_name") or "").strip()
+    selling = str(user_ctx.get("selling") or "").strip()
+    if not (name or title or company or selling):
+        return (
+            "Seller profile:\n"
+            "(No profile provided — use a neutral professional voice.)\n"
+        )
+    return (
+        "Seller profile (personalize tone and specifics using this):\n"
+        f"- Name: {name or 'Unknown'}\n"
+        f"- Title: {title or 'Unknown'}\n"
+        f"- Company: {company or 'Unknown'}\n"
+        f"- What they sell: {selling or 'Unknown'}\n"
+    )
+
+
 def lead_row_core(row: Any) -> dict:
     """Lead columns from `leads` table only (no nested notes)."""
     return {
@@ -248,6 +273,7 @@ def generate_follow_up_email(lead_id: int):
 
     payload = request.get_json(silent=True) or {}
     extra_context = (payload.get("extra_context") or "").strip()
+    user_ctx = payload.get("user_context")
 
     with get_db_connection() as connection:
         stage_notes = _fetch_stage_notes_dict(connection, lead_id)
@@ -259,8 +285,12 @@ def generate_follow_up_email(lead_id: int):
     configure(api_key=api_key)
     model = GenerativeModel(model_name)
 
+    seller_lines = _format_user_context_prompt(user_ctx)
+
     prompt = f"""
 You are an SDR writing a concise, professional follow-up email.
+
+{seller_lines}
 
 Lead details:
 - Company: {lead["company_name"]}
@@ -269,12 +299,14 @@ Lead details:
 - Current stage: {current_stage}
 - Notes (this stage only): {notes_for_stage}
 
-Additional context from user:
+Additional instructions from sender:
 {extra_context or "None"}
 
 Write:
 1) Email subject line
 2) Email body
+
+Speak in the seller's voice, reference their offering when relevant, and keep the message specific (not boilerplate).
 
 Keep it polite, specific, and actionable with a clear CTA.
 """

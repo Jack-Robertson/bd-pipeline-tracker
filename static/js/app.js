@@ -18,6 +18,125 @@ const STAGE_CONTAINER_IDS = {
   Closed: "stage-closed",
 };
 
+const PROFILE_STORAGE_KEY = "pipelineUserProfile";
+
+function normalizeProfile(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  return {
+    userName: String(obj.userName || "").trim(),
+    jobTitle: String(obj.jobTitle || "").trim(),
+    companyName: String(obj.companyName || "").trim(),
+    selling: String(obj.selling || "").trim(),
+  };
+}
+
+function loadUserProfile() {
+  try {
+    const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
+    if (!raw) return null;
+    return normalizeProfile(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function saveUserProfile(profile) {
+  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+}
+
+function isProfileComplete(profile) {
+  return !!(
+    profile &&
+    profile.userName &&
+    profile.jobTitle &&
+    profile.companyName &&
+    profile.selling
+  );
+}
+
+function getUserContextForApi() {
+  const p = loadUserProfile();
+  if (!isProfileComplete(p)) return null;
+  return {
+    user_name: p.userName,
+    job_title: p.jobTitle,
+    company_name: p.companyName,
+    selling: p.selling,
+  };
+}
+
+function setProfileAriaStates() {
+  const overlay = document.getElementById("profile-onboarding");
+  if (!overlay) return;
+  const ready = document.documentElement.classList.contains("profile-ready");
+  const editing = overlay.classList.contains("profile-onboarding--edit-open");
+  const overlayVisible = !ready || editing;
+  overlay.setAttribute("aria-hidden", overlayVisible ? "false" : "true");
+}
+
+function populateProfileForm() {
+  const p = loadUserProfile();
+  const nameEl = document.getElementById("profile_user_name");
+  const titleEl = document.getElementById("profile_job_title");
+  const companyEl = document.getElementById("profile_company_name");
+  const sellingEl = document.getElementById("profile_selling");
+  if (nameEl) nameEl.value = p?.userName || "";
+  if (titleEl) titleEl.value = p?.jobTitle || "";
+  if (companyEl) companyEl.value = p?.companyName || "";
+  if (sellingEl) sellingEl.value = p?.selling || "";
+}
+
+function openProfileEditorFromHeader() {
+  populateProfileForm();
+  const overlay = document.getElementById("profile-onboarding");
+  const cancel = document.getElementById("profile-cancel-btn");
+  const saveBtn = document.getElementById("profile-save-btn");
+  const titleEl = document.getElementById("profile-onboarding-title");
+
+  overlay?.classList.add("profile-onboarding--edit-open");
+  cancel?.classList.remove("hidden");
+  if (titleEl) titleEl.textContent = "Edit your profile";
+  if (saveBtn) saveBtn.textContent = "Save";
+
+  setProfileAriaStates();
+}
+
+function closeProfileEditor() {
+  populateProfileForm();
+  const overlay = document.getElementById("profile-onboarding");
+  overlay?.classList.remove("profile-onboarding--edit-open");
+  document.getElementById("profile-cancel-btn")?.classList.add("hidden");
+  setProfileAriaStates();
+}
+
+async function refreshLeadsIfSignedIn() {
+  if (!document.documentElement.classList.contains("profile-ready")) return;
+  await loadLeads();
+}
+
+async function handleProfileFormSubmit(ev) {
+  ev.preventDefault();
+  const form = document.getElementById("profile-setup-form");
+  if (!form) return;
+
+  const profile = {
+    userName: form.userName.value.trim(),
+    jobTitle: form.jobTitle.value.trim(),
+    companyName: form.companyName.value.trim(),
+    selling: form.selling.value.trim(),
+  };
+
+  if (!isProfileComplete(profile)) {
+    alert("Please fill in all fields.");
+    return;
+  }
+
+  saveUserProfile(profile);
+  document.documentElement.classList.add("profile-ready");
+  closeProfileEditor();
+  await refreshLeadsIfSignedIn();
+}
+
 function getStageListEl(stage) {
   const id = STAGE_CONTAINER_IDS[stage];
   return id ? document.getElementById(id) : null;
@@ -220,9 +339,13 @@ async function handleGenerateClick(button) {
   button.textContent = "Generating…";
 
   try {
+    const genBody = {};
+    const uc = getUserContextForApi();
+    if (uc) genBody.user_context = uc;
+
     const result = await fetchJson(`/api/leads/${leadId}/generate-follow-up`, {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify(genBody),
     });
     openEmailModal(result.draft || "");
   } catch (err) {
@@ -296,6 +419,29 @@ function initKanbanDragAndDrop() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  populateProfileForm();
+  setProfileAriaStates();
+
+  const profileForm = document.getElementById("profile-setup-form");
+  profileForm?.addEventListener("submit", (ev) => {
+    void handleProfileFormSubmit(ev);
+  });
+
+  document.getElementById("profile-cancel-btn")?.addEventListener("click", () => {
+    closeProfileEditor();
+  });
+
+  document.getElementById("open-profile-setup")?.addEventListener("click", () => {
+    openProfileEditorFromHeader();
+  });
+
+  document.getElementById("profile-onboarding")?.addEventListener("click", (ev) => {
+    if (ev.target !== ev.currentTarget) return;
+    if (document.documentElement.classList.contains("profile-ready")) {
+      closeProfileEditor();
+    }
+  });
+
   const form = document.getElementById("add-lead-form");
   const board = document.getElementById("kanban-board");
   const closeBtn = document.getElementById("close-email-modal");
@@ -336,8 +482,17 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeEmailModal();
+    if (e.key !== "Escape") return;
+    const overlay = document.getElementById("profile-onboarding");
+    if (overlay?.classList.contains("profile-onboarding--edit-open")) {
+      closeProfileEditor();
+      e.preventDefault();
+      return;
+    }
+    closeEmailModal();
   });
 
-  loadLeads();
+  if (document.documentElement.classList.contains("profile-ready")) {
+    void refreshLeadsIfSignedIn();
+  }
 });
