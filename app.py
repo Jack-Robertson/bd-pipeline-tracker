@@ -4,9 +4,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
-
-load_dotenv()
-from google.generativeai import GenerativeModel, configure
+from groq import Groq
 
 from database import get_db_connection, init_db
 
@@ -382,17 +380,14 @@ def research_lead(lead_id: int):
     if not lead:
         return jsonify({"error": "Lead not found."}), 404
 
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        return jsonify({"error": "GEMINI_API_KEY is not set in environment."}), 500
+        return jsonify({"error": "GROQ_API_KEY is not set in environment."}), 500
 
     payload = request.get_json(silent=True) or {}
     user_ctx = payload.get("user_context")
 
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-
-    configure(api_key=api_key)
-    model = GenerativeModel(model_name)
+    client = Groq(api_key=api_key)
 
     seller_lines = _format_user_context_prompt(user_ctx)
 
@@ -419,13 +414,17 @@ Return EXACTLY this format:
 """
 
     try:
-        response = model.generate_content(prompt)
-        research_text = (response.text or "").strip()
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1024,
+        )
+        research_text = (completion.choices[0].message.content or "").strip()
     except Exception as error:  # noqa: BLE001
-        return jsonify({"error": f"Gemini research failed: {error}"}), 502
+        return jsonify({"error": f"Groq research failed: {error}"}), 502
 
     if not research_text:
-        return jsonify({"error": "Gemini returned an empty response."}), 502
+        return jsonify({"error": "Groq returned an empty response."}), 502
 
     return jsonify({"lead_id": lead_id, "research": research_text}), 200
 
@@ -436,9 +435,9 @@ def generate_follow_up_email(lead_id: int):
     if not lead:
         return jsonify({"error": "Lead not found."}), 404
 
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        return jsonify({"error": "GEMINI_API_KEY is not set in environment."}), 500
+        return jsonify({"error": "GROQ_API_KEY is not set in environment."}), 500
 
     payload = request.get_json(silent=True) or {}
     extra_context = (payload.get("extra_context") or "").strip()
@@ -448,10 +447,7 @@ def generate_follow_up_email(lead_id: int):
     notes = lead["notes"] or ""
     notes_text = notes if notes else "No notes yet."
 
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-
-    configure(api_key=api_key)
-    model = GenerativeModel(model_name)
+    client = Groq(api_key=api_key)
 
     seller_lines = _format_user_context_prompt(user_ctx)
 
@@ -477,13 +473,17 @@ Speak in the seller's voice. Reference their offering when relevant. Make the em
 """
 
     try:
-        response = model.generate_content(prompt)
-        email_text = (response.text or "").strip()
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1024,
+        )
+        email_text = (completion.choices[0].message.content or "").strip()
     except Exception as error:  # noqa: BLE001
-        return jsonify({"error": f"Gemini generation failed: {error}"}), 502
+        return jsonify({"error": f"Groq generation failed: {error}"}), 502
 
     if not email_text:
-        return jsonify({"error": "Gemini returned an empty response."}), 502
+        return jsonify({"error": "Groq returned an empty response."}), 502
 
     return jsonify({"lead_id": lead_id, "draft": email_text}), 200
 

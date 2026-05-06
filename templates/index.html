@@ -189,6 +189,47 @@
         </div>
     </section>
 
+    <!-- Edit Lead Modal -->
+    <section id="edit-lead-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="edit-lead-modal-title">
+        <div class="modal-backdrop" data-modal-dismiss aria-hidden="true"></div>
+        <div class="modal-dialog modal-dialog--sm" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="edit-lead-modal-title">Edit Lead</h2>
+                    <button id="close-edit-lead-modal" class="modal-close" type="button" aria-label="Close dialog">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="edit-lead-form" novalidate>
+                        <div class="form-row">
+                            <label for="edit_company_name">Company</label>
+                            <input id="edit_company_name" name="company_name" type="text" required placeholder="Acme Corp" />
+                        </div>
+                        <div class="form-row">
+                            <label for="edit_contact_name">Contact Name</label>
+                            <input id="edit_contact_name" name="contact_name" type="text" required placeholder="Jane Smith" />
+                        </div>
+                        <div class="form-row">
+                            <label for="edit_email">Email</label>
+                            <input id="edit_email" name="email" type="email" required placeholder="jane@acme.com" />
+                        </div>
+                        <div class="form-row">
+                            <label for="edit_stage">Stage</label>
+                            <select id="edit_stage" name="stage">
+                                <!-- Populated dynamically -->
+                            </select>
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" id="cancel-edit-lead" class="btn btn--secondary" onclick="closeEditLeadModal()">Cancel</button>
+                            <button type="submit" class="btn btn--primary">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- Email Modal -->
     <section id="email-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="email-modal-title">
         <div class="modal-backdrop" data-modal-dismiss aria-hidden="true"></div>
