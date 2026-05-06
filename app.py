@@ -249,6 +249,98 @@ def update_lead_stage_notes(lead_id: int):
     return jsonify(body), 200
 
 
+@app.route("/api/leads/<int:lead_id>", methods=["GET"])
+def get_lead(lead_id: int):
+    with get_db_connection() as connection:
+        row = connection.execute(
+            "SELECT * FROM leads WHERE id = ?",
+            (lead_id,),
+        ).fetchone()
+    if not row:
+        return jsonify({"error": "Lead not found."}), 404
+    body = lead_with_stage_notes(connection, row)
+    return jsonify(body), 200
+
+
+@app.route("/api/leads/<int:lead_id>/research", methods=["POST"])
+def research_lead(lead_id: int):
+    lead = get_lead_or_404(lead_id)
+    if not lead:
+        return jsonify({"error": "Lead not found."}), 404
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return jsonify({"error": "GEMINI_API_KEY is not set in environment."}), 500
+
+    payload = request.get_json(silent=True) or {}
+    user_ctx = payload.get("user_context")
+
+    with get_db_connection() as connection:
+        stage_notes = _fetch_stage_notes_dict(connection, lead_id)
+    current_stage = lead["stage"]
+    existing_notes = stage_notes.get(current_stage, "") or ""
+
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+    configure(api_key=api_key)
+    model = GenerativeModel(model_name)
+
+    seller_lines = _format_user_context_prompt(user_ctx)
+
+    prompt = f"""
+You are an expert sales researcher analyzing a target company for an SDR.
+
+{seller_lines}
+
+Target company: {lead["company_name"]}
+Contact name: {lead["contact_name"]}
+Contact email: {lead["email"]}
+
+Research and provide:
+1. What the company does (products/services, industry, target market)
+2. The contact's likely role and responsibilities based on their name and context
+3. Pain points relevant to what the seller is offering
+4. Suggested talking points for outreach
+
+Be specific and actionable. Focus on insights that would help personalize a sales conversation.
+"""
+
+    try:
+        response = model.generate_content(prompt)
+        research_text = (response.text or "").strip()
+    except Exception as error:  # noqa: BLE001
+        return jsonify({"error": f"Gemini research failed: {error}"}), 502
+
+    if not research_text:
+        return jsonify({"error": "Gemini returned an empty response."}), 502
+
+    # Determine the new notes content
+    if not existing_notes:
+        new_notes = research_text
+    else:
+        new_notes = f"{existing_notes}\n\n---\n\n{research_text}"
+
+    # Save the research to the current stage notes
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO lead_stage_notes (lead_id, stage, content)
+            VALUES (?, ?, ?)
+            ON CONFLICT(lead_id, stage) DO UPDATE SET
+                content = excluded.content
+            """,
+            (lead_id, current_stage, new_notes),
+        )
+        connection.commit()
+        row = connection.execute(
+            "SELECT * FROM leads WHERE id = ?",
+            (lead_id,),
+        ).fetchone()
+        body = lead_with_stage_notes(connection, row)
+
+    return jsonify({"lead": body, "research": research_text}), 200
+
+
 @app.route("/api/leads/<int:lead_id>", methods=["DELETE"])
 def delete_lead(lead_id: int):
     if not get_lead_or_404(lead_id):

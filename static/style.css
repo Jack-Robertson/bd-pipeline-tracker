@@ -587,6 +587,157 @@ html.profile-ready .profile-onboarding:not(.profile-onboarding--edit-open) {
     box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.2);
 }
 
+.notes-btn {
+    border: 1px solid var(--accent-border);
+    background: var(--accent-muted);
+    color: var(--accent);
+}
+
+.notes-btn:hover {
+    background: rgba(23, 74, 126, 0.14);
+    border-color: var(--accent);
+}
+
+.notes-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--accent-muted);
+}
+
+.research-btn {
+    border: 1px solid #a855f7;
+    background: rgba(168, 85, 247, 0.08);
+    color: #7c3aed;
+}
+
+.research-btn:hover {
+    background: rgba(168, 85, 247, 0.16);
+    border-color: #7c3aed;
+}
+
+.research-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.2);
+}
+
+/* Notes modal styles */
+.notes-modal__lead-info {
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.notes-modal__lead-info p {
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+.notes-modal__lead-info strong {
+    font-size: 1rem;
+}
+
+.notes-modal__current-stage {
+    margin-top: 0.35rem;
+    color: var(--text-secondary);
+}
+
+.notes-tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    padding-bottom: 0;
+}
+
+.notes-tab {
+    flex: 0 0 auto;
+    padding: 0.5rem 0.75rem;
+    font: inherit;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color var(--transition), border-color var(--transition), background var(--transition);
+    white-space: nowrap;
+    margin-bottom: -1px;
+}
+
+.notes-tab:hover {
+    color: var(--text);
+    background: var(--column-bg);
+}
+
+.notes-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.notes-tab[aria-selected="true"] {
+    color: var(--accent);
+}
+
+.notes-tab-panels {
+    min-height: 200px;
+}
+
+.notes-tab-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.notes-tab-panel label {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.notes-tab-panel textarea {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem;
+    font: inherit;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--surface);
+    resize: vertical;
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.notes-tab-panel textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+.notes-tab-panel textarea::placeholder {
+    color: #94a3b8;
+}
+
+.notes-save-btn {
+    align-self: flex-start;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+}
+
+.notes-save-btn:hover {
+    background: var(--accent-hover);
+}
+
+.notes-save-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 .modal {
     position: fixed;
     inset: 0;

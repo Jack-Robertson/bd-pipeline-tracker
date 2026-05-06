@@ -164,6 +164,57 @@
         </main>
     </div>
 
+    <section id="notes-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="notes-modal-title">
+        <div class="modal-backdrop" data-modal-dismiss aria-hidden="true"></div>
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="notes-modal-title">Stage Notes</h2>
+                    <button id="close-notes-modal" class="modal-close" type="button" aria-label="Close dialog">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="notes-modal__lead-info" id="notes-modal-lead-info"></div>
+                    <div class="notes-tabs" role="tablist" aria-label="Pipeline stages">
+                        <button type="button" class="notes-tab active" role="tab" aria-selected="true" data-stage="Prospecting">Prospecting</button>
+                        <button type="button" class="notes-tab" role="tab" aria-selected="false" data-stage="Contacted">Contacted</button>
+                        <button type="button" class="notes-tab" role="tab" aria-selected="false" data-stage="Demo Scheduled">Demo Scheduled</button>
+                        <button type="button" class="notes-tab" role="tab" aria-selected="false" data-stage="Proposal Sent">Proposal Sent</button>
+                        <button type="button" class="notes-tab" role="tab" aria-selected="false" data-stage="Closed">Closed</button>
+                    </div>
+                    <div class="notes-tab-panels">
+                        <div class="notes-tab-panel active" role="tabpanel" id="panel-Prospecting">
+                            <label for="notes-textarea-Prospecting">Prospecting notes</label>
+                            <textarea id="notes-textarea-Prospecting" rows="8" placeholder="Notes for Prospecting stage..."></textarea>
+                            <button type="button" class="btn btn--primary notes-save-btn" data-stage="Prospecting">Save</button>
+                        </div>
+                        <div class="notes-tab-panel" role="tabpanel" id="panel-Contacted" hidden>
+                            <label for="notes-textarea-Contacted">Contacted notes</label>
+                            <textarea id="notes-textarea-Contacted" rows="8" placeholder="Notes for Contacted stage..."></textarea>
+                            <button type="button" class="btn btn--primary notes-save-btn" data-stage="Contacted">Save</button>
+                        </div>
+                        <div class="notes-tab-panel" role="tabpanel" id="panel-Demo Scheduled" hidden>
+                            <label for="notes-textarea-Demo Scheduled">Demo Scheduled notes</label>
+                            <textarea id="notes-textarea-Demo Scheduled" rows="8" placeholder="Notes for Demo Scheduled stage..."></textarea>
+                            <button type="button" class="btn btn--primary notes-save-btn" data-stage="Demo Scheduled">Save</button>
+                        </div>
+                        <div class="notes-tab-panel" role="tabpanel" id="panel-Proposal Sent" hidden>
+                            <label for="notes-textarea-Proposal Sent">Proposal Sent notes</label>
+                            <textarea id="notes-textarea-Proposal Sent" rows="8" placeholder="Notes for Proposal Sent stage..."></textarea>
+                            <button type="button" class="btn btn--primary notes-save-btn" data-stage="Proposal Sent">Save</button>
+                        </div>
+                        <div class="notes-tab-panel" role="tabpanel" id="panel-Closed" hidden>
+                            <label for="notes-textarea-Closed">Closed notes</label>
+                            <textarea id="notes-textarea-Closed" rows="8" placeholder="Notes for Closed stage..."></textarea>
+                            <button type="button" class="btn btn--primary notes-save-btn" data-stage="Closed">Save</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <section id="email-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="email-modal-title">
         <div class="modal-backdrop" data-modal-dismiss aria-hidden="true"></div>
         <div class="modal-dialog" role="document">
