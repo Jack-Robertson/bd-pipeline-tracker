@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
     <script>
 (function () {
   var ready = false;
@@ -15,11 +15,8 @@
     var raw = localStorage.getItem("pipelineUserProfile");
     if (raw) {
       var p = JSON.parse(raw);
-      function t(v) {
-        return String(v || "").trim();
-      }
-      ready =
-        !!t(p.userName) && !!t(p.jobTitle) && !!t(p.companyName) && !!t(p.selling);
+      function t(v) { return String(v || "").trim(); }
+      ready = !!t(p.userName) && !!t(p.jobTitle) && !!t(p.companyName) && !!t(p.selling);
     }
   } catch (e) {}
   document.documentElement.classList.toggle("profile-ready", ready);
@@ -50,8 +47,8 @@
                     <textarea id="profile_selling" name="selling" rows="4" required placeholder="e.g. Workforce analytics platform for mid-market HR teams"></textarea>
                 </div>
                 <div class="profile-setup-form__actions">
-                    <button type="button" id="profile-cancel-btn" class="btn btn--secondary profile-cancel-btn hidden">Cancel</button>
-                    <button type="submit" id="profile-save-btn" class="btn btn--primary profile-save-btn">Save & continue</button>
+                    <button type="button" id="profile-cancel-btn" class="btn btn--secondary hidden">Cancel</button>
+                    <button type="submit" id="profile-save-btn" class="btn btn--primary">Save & continue</button>
                 </div>
             </form>
         </div>
@@ -65,36 +62,103 @@
                     <span class="app-brand__mark" aria-hidden="true"></span>
                     <div>
                         <h1>Pipeline</h1>
-                        <p>Track deals and draft follow-ups in one place.</p>
+                        <p>Your relationship workspace</p>
                     </div>
                 </div>
                 <div class="header-actions">
-                    <button type="button" id="open-add-lead-modal" class="btn btn--header">+ Add Lead</button>
-                    <button type="button" id="open-stage-settings" class="btn btn--header">Stage Settings</button>
-                    <button type="button" id="open-profile-setup" class="btn btn--header">Edit Profile</button>
+                    <button type="button" id="open-add-lead-modal" class="btn btn--primary btn--sm">+ Add Lead</button>
+                    <button type="button" id="open-stage-settings" class="btn btn--ghost btn--sm">Stages</button>
+                    <button type="button" id="open-profile-setup" class="btn btn--ghost btn--sm">Profile</button>
                 </div>
             </div>
         </header>
 
         <main class="app-main">
-            <section class="kanban-section">
-                <div id="kanban-board" class="kanban-board">
-                    <!-- Columns will be dynamically generated based on stages -->
-                </div>
-            </section>
+            <div id="kanban-board" class="kanban-board">
+                <!-- Columns dynamically generated -->
+            </div>
         </main>
     </div>
 
-    <!-- Add Lead Modal -->
+    <!-- ── Relationship Workspace Modal ────────────────── -->
+    <section id="relationship-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="rel-modal-title">
+        <div class="modal-backdrop" data-modal-dismiss></div>
+        <div class="modal-dialog modal-dialog--lg" role="document">
+            <div class="modal-content">
+                <!-- Header -->
+                <div class="modal-header rel-header">
+                    <div class="rel-header__left">
+                        <h2 id="rel-modal-title" class="rel-header__company" id="rel-company"></h2>
+                        <p class="rel-header__contact" id="rel-contact"></p>
+                        <div class="rel-header__meta">
+                            <span class="badge badge--stage" id="rel-stage"></span>
+                            <a class="rel-header__email" id="rel-email" href="#"></a>
+                        </div>
+                    </div>
+                    <div class="rel-header__right">
+                        <button type="button" id="rel-edit-btn" class="btn btn--ghost btn--sm" title="Edit lead">✏️ Edit</button>
+                        <button type="button" id="close-relationship-modal" class="modal-close" aria-label="Close dialog">&times;</button>
+                    </div>
+                </div>
+
+                <!-- Body: Two Columns -->
+                <div class="modal-body rel-body">
+                    <div class="rel-grid">
+                        <!-- Left: Notes -->
+                        <div class="rel-notes">
+                            <label class="rel-label" for="notes-textarea">Notes</label>
+                            <textarea id="notes-textarea" class="rel-textarea" placeholder="Add notes about this relationship…" rows="1"></textarea>
+                            <span id="notes-save-status" class="save-status"></span>
+                        </div>
+
+                        <!-- Right: Research + Timeline -->
+                        <div class="rel-sidebar">
+                            <!-- Research -->
+                            <div class="rel-sidebar__section">
+                                <h3>AI Research</h3>
+                                <button type="button" id="run-research-btn" class="btn btn--secondary btn--sm btn--full">Run Research</button>
+                                <div id="research-empty" class="research-placeholder">
+                                    <p>No research yet. Click the button to analyze this lead with AI.</p>
+                                </div>
+                                <div id="research-panel" class="research-output hidden">
+                                    <div id="research-content"></div>
+                                </div>
+                            </div>
+
+                            <!-- Timeline -->
+                            <div class="rel-sidebar__section">
+                                <h3>Timeline</h3>
+                                <ul id="timeline-list" class="timeline">
+                                    <!-- Populated dynamically -->
+                                </ul>
+                            </div>
+
+                            <!-- Meta -->
+                            <div class="rel-sidebar__section rel-sidebar__section--muted">
+                                <div class="rel-meta-row">
+                                    <span class="rel-meta-label">Created</span>
+                                    <span id="rel-created">—</span>
+                                </div>
+                                <div class="rel-meta-row">
+                                    <span class="rel-meta-label">Last updated</span>
+                                    <span id="rel-updated">—</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Add Lead Modal ──────────────────────────────── -->
     <section id="add-lead-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="add-lead-modal-title">
-        <div class="modal-backdrop" data-modal-dismiss aria-hidden="true"></div>
+        <div class="modal-backdrop" data-modal-dismiss></div>
         <div class="modal-dialog modal-dialog--sm" role="document">
             <div class="modal-content">
                 <div class="modal-header">
                     <h2 id="add-lead-modal-title">Add New Lead</h2>
-                    <button id="close-add-lead-modal" class="modal-close" type="button" aria-label="Close dialog">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" id="close-add-lead-modal" class="modal-close" aria-label="Close">&times;</button>
                 </div>
                 <div class="modal-body">
                     <form id="add-lead-form" novalidate>
@@ -130,89 +194,28 @@
         </div>
     </section>
 
-    <!-- Stage Settings Modal -->
-    <section id="stage-settings-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="stage-settings-title">
-        <div class="modal-backdrop" data-modal-dismiss aria-hidden="true"></div>
-        <div class="modal-dialog modal-dialog--sm" role="document">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 id="stage-settings-title">Stage Settings</h2>
-                    <button id="close-stage-settings" class="modal-close" type="button" aria-label="Close dialog">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                </div>
-                <div class="modal-body">
-                    <p class="modal-hint">Drag to reorder. Click a name to rename. Delete only works on empty stages.</p>
-                    <ul id="stages-list" class="stages-list" role="list">
-                        <!-- Populated dynamically -->
-                    </ul>
-                    <div class="stage-settings__add">
-                        <form id="add-stage-form" class="add-stage-form">
-                            <input type="text" id="new-stage-name" placeholder="New stage name" required />
-                            <button type="submit" class="btn btn--primary btn--sm">Add Stage</button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Notes Modal (Two-Column Layout) -->
-    <section id="notes-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="notes-modal-title">
-        <div class="modal-backdrop" data-modal-dismiss aria-hidden="true"></div>
-        <div class="modal-dialog modal-dialog--lg" role="document">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 id="notes-modal-title">Notes & Research</h2>
-                    <button id="close-notes-modal" class="modal-close" type="button" aria-label="Close dialog">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                </div>
-                <div class="modal-body notes-modal-body">
-                    <div class="notes-modal__lead-info" id="notes-modal-lead-info"></div>
-                    <div class="notes-modal-grid">
-                        <div class="notes-modal__notes">
-                            <label for="notes-textarea">Your Notes</label>
-                            <textarea id="notes-textarea" rows="16" placeholder="Add your notes here..."></textarea>
-                            <button type="button" id="save-notes-btn" class="btn btn--primary">Save Notes</button>
-                        </div>
-                        <div class="notes-modal__research">
-                            <h3>Research</h3>
-                            <button type="button" id="run-research-btn" class="btn btn--research">Run Research</button>
-                            <div id="research-output" class="research-output hidden">
-                                <!-- Research results appear here -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Edit Lead Modal -->
+    <!-- ── Edit Lead Modal ─────────────────────────────── -->
     <section id="edit-lead-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="edit-lead-modal-title">
-        <div class="modal-backdrop" data-modal-dismiss aria-hidden="true"></div>
+        <div class="modal-backdrop" data-modal-dismiss></div>
         <div class="modal-dialog modal-dialog--sm" role="document">
             <div class="modal-content">
                 <div class="modal-header">
                     <h2 id="edit-lead-modal-title">Edit Lead</h2>
-                    <button id="close-edit-lead-modal" class="modal-close" type="button" aria-label="Close dialog">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" id="close-edit-lead-modal" class="modal-close" aria-label="Close">&times;</button>
                 </div>
                 <div class="modal-body">
                     <form id="edit-lead-form" novalidate>
                         <div class="form-row">
                             <label for="edit_company_name">Company</label>
-                            <input id="edit_company_name" name="company_name" type="text" required placeholder="Acme Corp" />
+                            <input id="edit_company_name" name="company_name" type="text" required />
                         </div>
                         <div class="form-row">
                             <label for="edit_contact_name">Contact Name</label>
-                            <input id="edit_contact_name" name="contact_name" type="text" required placeholder="Jane Smith" />
+                            <input id="edit_contact_name" name="contact_name" type="text" required />
                         </div>
                         <div class="form-row">
                             <label for="edit_email">Email</label>
-                            <input id="edit_email" name="email" type="email" required placeholder="jane@acme.com" />
+                            <input id="edit_email" name="email" type="email" required />
                         </div>
                         <div class="form-row">
                             <label for="edit_stage">Stage</label>
@@ -230,16 +233,39 @@
         </div>
     </section>
 
-    <!-- Email Modal -->
+    <!-- ── Stage Settings Modal ────────────────────────── -->
+    <section id="stage-settings-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="stage-settings-title">
+        <div class="modal-backdrop" data-modal-dismiss></div>
+        <div class="modal-dialog modal-dialog--sm" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="stage-settings-title">Stage Settings</h2>
+                    <button type="button" id="close-stage-settings" class="modal-close" aria-label="Close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-hint">Drag to reorder stages. Double-click a name to rename. Only empty stages can be deleted.</p>
+                    <ul id="stages-list" class="stages-list" role="list">
+                        <!-- Populated dynamically -->
+                    </ul>
+                    <div class="stage-settings__add">
+                        <form id="add-stage-form" class="add-stage-form">
+                            <input type="text" id="new-stage-name" placeholder="New stage name" required />
+                            <button type="submit" class="btn btn--primary btn--sm">Add Stage</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Email Modal ─────────────────────────────────── -->
     <section id="email-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="email-modal-title">
-        <div class="modal-backdrop" data-modal-dismiss aria-hidden="true"></div>
+        <div class="modal-backdrop" data-modal-dismiss></div>
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
                     <h2 id="email-modal-title">AI Follow-up Email</h2>
-                    <button id="close-email-modal" class="modal-close" type="button" aria-label="Close dialog">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" id="close-email-modal" class="modal-close" aria-label="Close">&times;</button>
                 </div>
                 <div class="modal-body">
                     <label for="email-draft-output">Draft</label>

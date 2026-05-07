@@ -1,26 +1,20 @@
 /**
- * Sales Pipeline Tracker - Dynamic Stages Edition
- * Handles stages, leads, notes, research, and AI email generation.
+ * Sales Pipeline Tracker — Relationship Workspace Edition
  */
 
 const PROFILE_STORAGE_KEY = "pipelineUserProfile";
 
-// Application state
+// ── State ──────────────────────────────────────────────
 let stages = [];
-let currentNotesLeadId = null;
-let currentNotesLeadData = null;
+let currentLeadId = null;
+let currentLeadData = null;
+let saveTimer = null;
 let stageSettingsInitialized = false;
 
-// Stage colors for card borders
-const STAGE_COLORS = [
-  "#64748b", "#0d9488", "#d97706", "#7c3aed", "#059669",
-];
+const STAGE_COLORS = ["#64748b", "#0d9488", "#d97706", "#7c3aed", "#059669"];
+function getStageColor(pos) { return STAGE_COLORS[pos % STAGE_COLORS.length]; }
 
-function getStageColor(position) {
-  return STAGE_COLORS[position % STAGE_COLORS.length];
-}
-
-// Profile functions
+// ── Profile ────────────────────────────────────────────
 function normalizeProfile(obj) {
   if (!obj || typeof obj !== "object") return null;
   return {
@@ -34,18 +28,13 @@ function normalizeProfile(obj) {
 function loadUserProfile() {
   try {
     const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
-    if (!raw) return null;
-    return normalizeProfile(JSON.parse(raw));
+    return raw ? normalizeProfile(JSON.parse(raw)) : null;
   } catch { return null; }
 }
 
-function saveUserProfile(profile) {
-  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
-}
+function saveUserProfile(p) { localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(p)); }
 
-function isProfileComplete(profile) {
-  return !!(profile && profile.userName && profile.jobTitle && profile.companyName && profile.selling);
-}
+function isProfileComplete(p) { return !!(p && p.userName && p.jobTitle && p.companyName && p.selling); }
 
 function getUserContextForApi() {
   const p = loadUserProfile();
@@ -63,11 +52,8 @@ function setProfileAriaStates() {
 
 function populateProfileForm() {
   const p = loadUserProfile();
-  const fields = { profile_user_name: "userName", profile_job_title: "jobTitle", profile_company_name: "companyName", profile_selling: "selling" };
-  Object.entries(fields).forEach(([id, key]) => {
-    const el = document.getElementById(id);
-    if (el) el.value = p?.[key] || "";
-  });
+  const map = { profile_user_name: "userName", profile_job_title: "jobTitle", profile_company_name: "companyName", profile_selling: "selling" };
+  Object.entries(map).forEach(([id, key]) => { const el = document.getElementById(id); if (el) el.value = p?.[key] || ""; });
 }
 
 function openProfileEditorFromHeader() {
@@ -93,12 +79,7 @@ async function handleProfileFormSubmit(ev) {
   ev.preventDefault();
   const form = document.getElementById("profile-setup-form");
   if (!form) return;
-  const profile = {
-    userName: form.userName.value.trim(),
-    jobTitle: form.jobTitle.value.trim(),
-    companyName: form.companyName.value.trim(),
-    selling: form.selling.value.trim(),
-  };
+  const profile = { userName: form.userName.value.trim(), jobTitle: form.jobTitle.value.trim(), companyName: form.companyName.value.trim(), selling: form.selling.value.trim() };
   if (!isProfileComplete(profile)) { alert("Please fill in all fields."); return; }
   saveUserProfile(profile);
   document.documentElement.classList.add("profile-ready");
@@ -106,12 +87,9 @@ async function handleProfileFormSubmit(ev) {
   await loadAllData();
 }
 
-// API helper
+// ── API helper ─────────────────────────────────────────
 async function fetchJson(url, options = {}) {
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", Accept: "application/json", ...options.headers },
-    ...options,
-  });
+  const res = await fetch(url, { headers: { "Content-Type": "application/json", Accept: "application/json", ...options.headers }, ...options });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText || "Request failed");
   return data;
@@ -123,7 +101,26 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// Stages management
+function formatDate(dateStr) {
+  if (!dateStr) return "";
+  const date = new Date(dateStr);
+  const diff = Date.now() - date;
+  const m = Math.floor(diff / 60000);
+  const h = Math.floor(diff / 3600000);
+  const d = Math.floor(diff / 86400000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  if (h < 24) return `${h}h ago`;
+  if (d < 7) return `${d}d ago`;
+  return date.toLocaleDateString();
+}
+
+function formatFullDate(dateStr) {
+  if (!dateStr) return "—";
+  return new Date(dateStr).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+// ── Stages ─────────────────────────────────────────────
 async function loadStages() {
   try { stages = await fetchJson("/api/stages"); }
   catch (err) { console.error("Failed to load stages:", err); stages = []; }
@@ -135,9 +132,9 @@ async function handleAddStage(name) {
     const newStage = await fetchJson("/api/stages", { method: "POST", body: JSON.stringify({ name: name.trim() }) });
     stages.push(newStage);
     await buildBoard();
-    await loadLeads(); // Fix Bug 2: load leads after building board
+    await loadLeads();
     populateStageDropdowns();
-    renderStageSettingsList(); // Use separate render function
+    renderStageSettingsList();
   } catch (err) { alert(err.message); }
 }
 
@@ -167,10 +164,7 @@ async function handleDeleteStage(stageId) {
 async function handleReorderStages(order) {
   try {
     await fetchJson("/api/stages/reorder", { method: "POST", body: JSON.stringify({ order }) });
-    order.forEach((stageId, position) => {
-      const stage = stages.find(s => s.id === stageId);
-      if (stage) stage.position = position;
-    });
+    order.forEach((stageId, pos) => { const s = stages.find(x => x.id === stageId); if (s) s.position = pos; });
     await buildBoard();
     await loadLeads();
     renderStageSettingsList();
@@ -178,8 +172,7 @@ async function handleReorderStages(order) {
 }
 
 function populateStageDropdowns(preselectedStage) {
-  const selects = document.querySelectorAll("select[name='stage']");
-  selects.forEach(select => {
+  document.querySelectorAll("select[name='stage']").forEach(select => {
     const currentValue = preselectedStage || select.value;
     select.innerHTML = "";
     stages.forEach(stage => {
@@ -192,7 +185,7 @@ function populateStageDropdowns(preselectedStage) {
   });
 }
 
-// Board rendering
+// ── Board ──────────────────────────────────────────────
 function buildBoard() {
   const board = document.getElementById("kanban-board");
   if (!board) return;
@@ -205,10 +198,13 @@ function buildBoard() {
     column.innerHTML = `
       <div class="column-header">
         <h3>${escapeHtml(stage.name)}</h3>
-        <span class="column-count" data-stage="${escapeHtml(stage.name)}" aria-live="polite">0</span>
+        <span class="column-count" data-stage="${escapeHtml(stage.name)}">0</span>
       </div>
       <div class="lead-list" id="stage-${index}" data-stage="${escapeHtml(stage.name)}"></div>
-      <button type="button" class="add-lead-inline-btn" data-stage="${escapeHtml(stage.name)}" title="Add lead to ${escapeHtml(stage.name)}">+</button>
+      <div class="add-lead-area" data-stage="${escapeHtml(stage.name)}">
+        <button type="button" class="add-lead-btn" title="Add lead">+</button>
+        <span class="add-lead-label">Add Lead</span>
+      </div>
     `;
     board.appendChild(column);
   });
@@ -241,66 +237,47 @@ function renderLeads(leads) {
   });
 }
 
-// Fix Bug 3: Make entire card draggable
 function createLeadCard(lead, stagePosition) {
   const article = document.createElement("article");
   article.className = "lead-card";
   article.dataset.leadId = String(lead.id);
   article.dataset.stage = lead.stage;
-  article.draggable = true; // Make entire card draggable
+  article.draggable = true;
 
   const color = getStageColor(stagePosition);
-  article.style.borderLeftColor = color;
+  article.style.setProperty("--card-accent", color);
 
-  const updatedDate = lead.updated_at ? formatDate(lead.updated_at) : "";
+  const updated = lead.updated_at ? formatDate(lead.updated_at) : "";
 
   article.innerHTML = `
-    <div class="lead-card__head">
-      <h4>${escapeHtml(lead.company_name)}</h4>
+    <div class="lead-card__body">
+      <h4 class="lead-card__company">${escapeHtml(lead.company_name)}</h4>
+      <p class="lead-card__contact">${escapeHtml(lead.contact_name)}</p>
+      <a class="lead-card__email" href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a>
+      ${updated ? `<span class="lead-card__updated">${updated}</span>` : ""}
     </div>
-    <p>${escapeHtml(lead.contact_name)}</p>
-    <p><a href="mailto:${escapeHtml(lead.email)}">${escapeHtml(lead.email)}</a></p>
-    ${updatedDate ? `<p class="lead-card__updated">Updated ${updatedDate}</p>` : ""}
-    <div class="card-actions">
-      <button type="button" class="notes-btn" data-lead-id="${lead.id}" title="Notes">Notes</button>
-      <button type="button" class="email-btn" data-lead-id="${lead.id}" title="Generate email">Generate Email</button>
-      <button type="button" class="edit-btn" data-lead-id="${lead.id}" title="Edit lead">✏️</button>
-      <button type="button" class="delete-btn" data-lead-id="${lead.id}" title="Delete">🗑️</button>
+    <div class="lead-card__actions">
+      <button type="button" class="card-btn card-btn--email" data-lead-id="${lead.id}" title="Generate email">✉️ Generate Email</button>
+      <button type="button" class="card-btn card-btn--icon" data-action="edit" data-lead-id="${lead.id}" title="Edit lead">✏️</button>
+      <button type="button" class="card-btn card-btn--icon card-btn--danger" data-action="delete" data-lead-id="${lead.id}" title="Delete">🗑️</button>
     </div>
   `;
 
-  // Card drag handlers
+  // Drag start/end on card
   article.addEventListener("dragstart", (e) => {
     e.dataTransfer.setData("text/plain", String(lead.id));
     e.dataTransfer.effectAllowed = "move";
     article.classList.add("lead-card--dragging");
   });
-
   article.addEventListener("dragend", () => {
     article.classList.remove("lead-card--dragging");
-    document.querySelectorAll(".kanban-column").forEach(col => {
-      col.classList.remove("column--drag-over");
-    });
+    document.querySelectorAll(".kanban-column").forEach(col => col.classList.remove("column--drag-over"));
   });
 
   return article;
 }
 
-function formatDate(dateStr) {
-  if (!dateStr) return "";
-  const date = new Date(dateStr);
-  const diff = Date.now() - date;
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days < 7) return `${days}d ago`;
-  return date.toLocaleDateString();
-}
-
-// Lead operations
+// ── Leads ──────────────────────────────────────────────
 async function loadLeads() {
   try {
     const leads = await fetchJson("/api/leads");
@@ -313,7 +290,6 @@ async function loadAllData() {
   buildBoard();
   populateStageDropdowns();
   await loadLeads();
-  initKanbanDragAndDrop(); // Re-init after board rebuild
 }
 
 async function handleAddLeadSubmit(event) {
@@ -334,19 +310,6 @@ async function handleAddLeadSubmit(event) {
   } catch (err) { alert(err.message); }
 }
 
-async function handleStageChange(select) {
-  const leadId = select.dataset.leadId;
-  const newStage = select.value;
-  select.disabled = true;
-  try {
-    await fetchJson(`/api/leads/${leadId}/stage`, { method: "PATCH", body: JSON.stringify({ stage: newStage }) });
-    await loadLeads();
-  } catch (err) {
-    alert(err.message);
-    select.value = currentNotesLeadData?.stage || stages[0]?.name;
-  } finally { select.disabled = false; }
-}
-
 async function handleDeleteClick(button) {
   const leadId = button.dataset.leadId;
   if (!leadId) return;
@@ -359,95 +322,143 @@ async function handleDeleteClick(button) {
   finally { button.disabled = false; }
 }
 
-// Fix Bug 4: Auto-save notes on close
-async function autoSaveNotes() {
-  if (!currentNotesLeadId) return;
+// ── Relationship Workspace Modal ───────────────────────
+function openRelationshipModal(lead) {
+  currentLeadId = lead.id;
+  currentLeadData = lead;
+
+  const modal = document.getElementById("relationship-modal");
   const textarea = document.getElementById("notes-textarea");
-  if (!textarea) return;
-  const content = textarea.value;
+  const saveStatus = document.getElementById("notes-save-status");
+  const researchPanel = document.getElementById("research-panel");
+  const researchEmpty = document.getElementById("research-empty");
+  const timeline = document.getElementById("timeline-list");
 
-  // Check if research was generated and append it
-  const researchOutput = document.getElementById("research-output");
-  let finalContent = content;
-  if (researchOutput && !researchOutput.classList.contains("hidden") && researchOutput.dataset.researchText) {
-    const researchText = researchOutput.dataset.researchText;
-    if (content && !content.includes(researchText)) {
-      finalContent = content + "\n\n---\n\n" + researchText;
-    } else if (!content) {
-      finalContent = researchText;
-    }
-  }
+  if (!modal || !textarea) return;
 
-  try {
-    await fetchJson(`/api/leads/${currentNotesLeadId}/notes`, {
-      method: "PATCH",
-      body: JSON.stringify({ content: finalContent }),
-    });
-    await loadLeads();
-  } catch (err) {
-    console.error("Auto-save failed:", err);
-  }
-}
+  // Header
+  document.getElementById("rel-company").textContent = lead.company_name;
+  document.getElementById("rel-contact").textContent = lead.contact_name;
+  document.getElementById("rel-stage").textContent = lead.stage;
+  document.getElementById("rel-stage").className = "badge badge--stage";
+  document.getElementById("rel-email").textContent = lead.email;
+  document.getElementById("rel-email").href = `mailto:${lead.email}`;
+  document.getElementById("rel-created").textContent = formatFullDate(lead.created_at);
+  document.getElementById("rel-updated").textContent = formatFullDate(lead.updated_at);
 
-// Notes modal
-function openNotesModal(lead) {
-  currentNotesLeadId = lead.id;
-  currentNotesLeadData = lead;
-
-  const modal = document.getElementById("notes-modal");
-  const leadInfo = document.getElementById("notes-modal-lead-info");
-  const textarea = document.getElementById("notes-textarea");
-  const researchOutput = document.getElementById("research-output");
-
-  if (!modal || !leadInfo || !textarea) return;
-
-  leadInfo.innerHTML = `
-    <p><strong>${escapeHtml(lead.company_name)}</strong> — ${escapeHtml(lead.contact_name)}</p>
-    <p style="color: var(--text-secondary); font-size: 0.8rem;">Stage: ${escapeHtml(lead.stage)}</p>
-  `;
-
+  // Notes
   textarea.value = lead.notes || "";
-  researchOutput.classList.add("hidden");
-  researchOutput.innerHTML = "";
-  researchOutput.dataset.researchText = "";
+  textarea.style.height = "auto";
+  textarea.style.height = textarea.scrollHeight + "px";
+  if (saveStatus) saveStatus.textContent = "";
+
+  // Research
+  researchPanel.classList.add("hidden");
+  researchEmpty?.classList.remove("hidden");
+  document.getElementById("research-content").innerHTML = "";
+  document.getElementById("research-content").dataset.researchText = "";
+
+  // Timeline placeholder
+  if (timeline) {
+    timeline.innerHTML = `
+      <li class="timeline-item">
+        <span class="timeline-dot"></span>
+        <div><strong>Lead created</strong><br/><small>${formatFullDate(lead.created_at)}</small></div>
+      </li>
+      ${lead.updated_at !== lead.created_at ? `
+      <li class="timeline-item">
+        <span class="timeline-dot"></span>
+        <div><strong>Last updated</strong><br/><small>${formatFullDate(lead.updated_at)}</small></div>
+      </li>` : ""}
+      <li class="timeline-item">
+        <span class="timeline-dot"></span>
+        <div><strong>Stage</strong><br/><small>${escapeHtml(lead.stage)}</small></div>
+      </li>
+    `;
+  }
+
+  // Edit button in header
+  const editBtn = document.getElementById("rel-edit-btn");
+  if (editBtn) editBtn.dataset.leadId = lead.id;
 
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
 }
 
-function closeNotesModal() {
-  // Auto-save before closing
-  void autoSaveNotes();
+function closeRelationshipModal() {
+  // Flush any pending auto-save
+  flushAutoSave();
 
-  const modal = document.getElementById("notes-modal");
+  const modal = document.getElementById("relationship-modal");
   if (!modal) return;
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
-  currentNotesLeadId = null;
-  currentNotesLeadData = null;
+  currentLeadId = null;
+  currentLeadData = null;
 }
 
+// ── Auto-save ──────────────────────────────────────────
+function debouncedSaveNotes() {
+  if (saveTimer) clearTimeout(saveTimer);
+  const status = document.getElementById("notes-save-status");
+  if (status) { status.textContent = "Saving…"; status.className = "save-status save-status--saving"; }
+  saveTimer = setTimeout(() => flushAutoSave(), 800);
+}
+
+async function flushAutoSave() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  if (!currentLeadId) return;
+
+  const textarea = document.getElementById("notes-textarea");
+  if (!textarea) return;
+
+  const content = textarea.value;
+  const status = document.getElementById("notes-save-status");
+
+  try {
+    await fetchJson(`/api/leads/${currentLeadId}/notes`, {
+      method: "PATCH",
+      body: JSON.stringify({ content }),
+    });
+    if (status) { status.textContent = "Saved"; status.className = "save-status save-status--saved"; }
+    // Update local data
+    if (currentLeadData) currentLeadData.notes = content;
+    await loadLeads();
+  } catch (err) {
+    console.error("Auto-save failed:", err);
+    if (status) { status.textContent = "Save failed"; status.className = "save-status save-status--error"; }
+  }
+}
+
+// Auto-resize textarea
+function autoResizeTextarea(el) {
+  el.style.height = "auto";
+  el.style.height = el.scrollHeight + "px";
+}
+
+// ── Research ───────────────────────────────────────────
 async function handleResearch() {
-  if (!currentNotesLeadId) return;
+  if (!currentLeadId) return;
   const uc = getUserContextForApi();
   if (!uc) { alert("Please complete your profile before using AI research."); return; }
 
   const btn = document.getElementById("run-research-btn");
-  const output = document.getElementById("research-output");
+  const empty = document.getElementById("research-empty");
+  const panel = document.getElementById("research-panel");
+  const content = document.getElementById("research-content");
 
   if (btn) { btn.disabled = true; btn.textContent = "Researching…"; }
+  if (empty) empty.classList.add("hidden");
 
   try {
-    const result = await fetchJson(`/api/leads/${currentNotesLeadId}/research`, {
+    const result = await fetchJson(`/api/leads/${currentLeadId}/research`, {
       method: "POST",
       body: JSON.stringify({ user_context: uc }),
     });
-
-    output.classList.remove("hidden");
-    output.innerHTML = parseResearchOutput(result.research);
-    output.dataset.researchText = result.research;
-
-  } catch (err) { alert(err.message); }
+    panel.classList.remove("hidden");
+    content.innerHTML = parseResearchOutput(result.research);
+    content.dataset.researchText = result.research;
+  } catch (err) { alert(err.message); if (empty) empty.classList.remove("hidden"); }
   finally { if (btn) { btn.disabled = false; btn.textContent = "Run Research"; } }
 }
 
@@ -474,7 +485,7 @@ function parseResearchOutput(text) {
   return html || `<p>${escapeHtml(text)}</p>`;
 }
 
-// Email modal
+// ── Email Modal ────────────────────────────────────────
 function openEmailModal(draft) {
   const modal = document.getElementById("email-modal");
   const output = document.getElementById("email-draft-output");
@@ -493,12 +504,10 @@ function closeEmailModal() {
   if (output) output.value = "";
 }
 
-async function handleGenerateEmail(button) {
-  const leadId = button.dataset.leadId;
+async function handleGenerateEmail(e, leadId) {
+  e.stopPropagation();
+  e.preventDefault();
   if (!leadId) return;
-  const original = button.textContent;
-  button.disabled = true;
-  button.textContent = "Generating…";
   try {
     const genBody = {};
     const uc = getUserContextForApi();
@@ -506,19 +515,16 @@ async function handleGenerateEmail(button) {
     const result = await fetchJson(`/api/leads/${leadId}/generate-follow-up`, { method: "POST", body: JSON.stringify(genBody) });
     openEmailModal(result.draft || "");
   } catch (err) { alert(err.message); }
-  finally { button.disabled = false; button.textContent = original; }
 }
 
-// Edit lead modal
+// ── Edit Lead ──────────────────────────────────────────
 function openEditLeadModal(lead) {
   const modal = document.getElementById("edit-lead-modal");
   if (!modal) return;
-
   document.getElementById("edit_company_name").value = lead.company_name || "";
   document.getElementById("edit_contact_name").value = lead.contact_name || "";
   document.getElementById("edit_email").value = lead.email || "";
   populateStageDropdowns(lead.stage);
-
   modal.dataset.leadId = lead.id;
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
@@ -536,22 +542,22 @@ async function handleEditLeadSubmit(event) {
   const modal = document.getElementById("edit-lead-modal");
   const leadId = modal.dataset.leadId;
   if (!leadId) return;
-
   const payload = {
     company_name: document.getElementById("edit_company_name").value.trim(),
     contact_name: document.getElementById("edit_contact_name").value.trim(),
     email: document.getElementById("edit_email").value.trim(),
     stage: document.getElementById("edit_stage").value,
   };
-
   try {
     await fetchJson(`/api/leads/${leadId}`, { method: "PATCH", body: JSON.stringify(payload) });
     closeEditLeadModal();
+    // If relationship modal is open, close it to refresh
+    closeRelationshipModal();
     await loadLeads();
   } catch (err) { alert(err.message); }
 }
 
-// Add Lead Modal
+// ── Add Lead Modal ─────────────────────────────────────
 function openAddLeadModal(preselectedStage) {
   const modal = document.getElementById("add-lead-modal");
   if (!modal) return;
@@ -568,16 +574,14 @@ function closeAddLeadModal() {
   document.getElementById("add-lead-form")?.reset();
 }
 
-// Stage Settings - Fix Bug 1: Only render once, don't re-attach listeners
+// ── Stage Settings ─────────────────────────────────────
 function openStageSettings() {
   const modal = document.getElementById("stage-settings-modal");
   if (!modal) return;
-
   if (!stageSettingsInitialized) {
     renderStageSettingsList();
     stageSettingsInitialized = true;
   }
-
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
 }
@@ -593,17 +597,16 @@ function renderStageSettingsList() {
   const list = document.getElementById("stages-list");
   if (!list) return;
 
-  // Remove old event listener
   const newList = list.cloneNode(false);
   list.parentNode.replaceChild(newList, list);
 
-  // Get lead counts
   fetchJson("/api/leads").then(leads => {
     const counts = {};
     leads.forEach(lead => { counts[lead.stage] = (counts[lead.stage] || 0) + 1; });
 
     stages.forEach((stage, index) => {
       const li = document.createElement("li");
+      li.className = "stage-item";
       li.dataset.stageId = stage.id;
       li.draggable = true;
 
@@ -612,15 +615,14 @@ function renderStageSettingsList() {
       const canDelete = leadCount === 0;
 
       li.innerHTML = `
-        <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
-        <span class="stage-color-dot" style="background: ${color}"></span>
-        <input type="text" class="stage-name-input" value="${escapeHtml(stage.name)}" data-stage-id="${stage.id}" />
-        <span class="stage-lead-count">${leadCount} lead${leadCount !== 1 ? "s" : ""}</span>
-        <button type="button" class="stage-delete-btn" data-stage-id="${stage.id}" ${!canDelete ? "disabled" : ""} title="${canDelete ? "Delete stage" : "Move leads first"}">🗑️</button>
+        <span class="stage-item__handle" title="Drag to reorder">⋮⋮</span>
+        <span class="stage-item__dot" style="background:${color}"></span>
+        <input type="text" class="stage-item__input" value="${escapeHtml(stage.name)}" data-stage-id="${stage.id}" />
+        <span class="stage-item__count">${leadCount} lead${leadCount !== 1 ? "s" : ""}</span>
+        <button type="button" class="stage-item__delete" data-stage-id="${stage.id}" ${!canDelete ? "disabled" : ""} title="${canDelete ? "Delete stage" : "Move leads first"}">🗑️</button>
       `;
 
-      // Rename on blur
-      const input = li.querySelector(".stage-name-input");
+      const input = li.querySelector(".stage-item__input");
       input.addEventListener("blur", () => {
         const newName = input.value.trim();
         if (newName && newName !== stage.name) handleRenameStage(stage.id, newName);
@@ -628,31 +630,44 @@ function renderStageSettingsList() {
       });
       input.addEventListener("keydown", (e) => { if (e.key === "Enter") input.blur(); });
 
-      // Delete
-      li.querySelector(".stage-delete-btn").addEventListener("click", () => {
+      li.querySelector(".stage-item__delete").addEventListener("click", () => {
         if (canDelete) handleDeleteStage(stage.id);
       });
 
-      // Drag
+      // Stage drag with drop indicator
       li.addEventListener("dragstart", (e) => {
-        li.classList.add("dragging");
-        e.dataTransfer.setData("text/plain", String(stage.id));
+        li.classList.add("stage-item--dragging");
+        e.dataTransfer.setData("text/stage-id", String(stage.id));
+        e.dataTransfer.effectAllowed = "move";
       });
-      li.addEventListener("dragend", () => li.classList.remove("dragging"));
+      li.addEventListener("dragend", () => {
+        li.classList.remove("stage-item--dragging");
+        newList.querySelectorAll(".stage-item--over").forEach(el => el.classList.remove("stage-item--over"));
+        // Commit reorder
+        const items = newList.querySelectorAll(".stage-item");
+        const order = Array.from(items).map(item => parseInt(item.dataset.stageId));
+        handleReorderStages(order);
+      });
       li.addEventListener("dragover", (e) => {
         e.preventDefault();
-        const dragging = newList.querySelector(".dragging");
-        if (dragging && dragging !== li) newList.insertBefore(dragging, li);
+        e.dataTransfer.dropEffect = "move";
+        const dragging = newList.querySelector(".stage-item--dragging");
+        if (!dragging || dragging === li) return;
+        newList.querySelectorAll(".stage-item--over").forEach(el => el.classList.remove("stage-item--over"));
+        li.classList.add("stage-item--over");
+        const rect = li.getBoundingClientRect();
+        const mid = rect.top + rect.height / 2;
+        if (e.clientY < mid) {
+          newList.insertBefore(dragging, li);
+        } else {
+          newList.insertBefore(dragging, li.nextSibling);
+        }
+      });
+      li.addEventListener("dragleave", () => {
+        li.classList.remove("stage-item--over");
       });
 
       newList.appendChild(li);
-    });
-
-    // Single drop handler
-    newList.addEventListener("dragend", async () => {
-      const items = newList.querySelectorAll("li");
-      const order = Array.from(items).map(li => parseInt(li.dataset.stageId));
-      await handleReorderStages(order);
     });
   }).catch(err => console.error("Failed to load leads for stage settings:", err));
 }
@@ -667,39 +682,107 @@ async function handleAddStageFormSubmit(event) {
   }
 }
 
-// Kanban drag and drop
-function initKanbanDragAndDrop() {
-  document.querySelectorAll(".kanban-column").forEach(column => {
-    column.addEventListener("dragenter", (e) => { e.preventDefault(); column.classList.add("column--drag-over"); });
-    column.addEventListener("dragleave", (e) => { if (!column.contains(e.relatedTarget)) column.classList.remove("column--drag-over"); });
-    column.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; });
-    column.addEventListener("drop", async (e) => {
+// ── Global event delegation ────────────────────────────
+function initGlobalDelegation() {
+  const board = document.getElementById("kanban-board");
+  if (!board) return;
+
+  // Click delegation (only set up once)
+  board.addEventListener("click", async (e) => {
+    // --- Add Lead button ---
+    const addBtn = e.target.closest(".add-lead-btn") || e.target.closest(".add-lead-area");
+    if (addBtn) {
       e.preventDefault();
-      column.classList.remove("column--drag-over");
-      const leadId = e.dataTransfer.getData("text/plain");
-      if (!leadId) return;
-      const newStage = column.dataset.stage;
-      if (!newStage) return;
+      const stage = addBtn.closest(".kanban-column")?.dataset.stage || addBtn.dataset.stage;
+      openAddLeadModal(stage);
+      return;
+    }
+
+    // --- Lead card click → open relationship modal ---
+    const card = e.target.closest(".lead-card");
+    if (card) {
+      // Don't open modal if clicking a button inside the card
+      if (e.target.closest("button") || e.target.closest("a")) return;
+      e.preventDefault();
       try {
-        await fetchJson(`/api/leads/${leadId}/stage`, { method: "PATCH", body: JSON.stringify({ stage: newStage }) });
-        await loadLeads();
+        const lead = await fetchJson(`/api/leads/${card.dataset.leadId}`);
+        openRelationshipModal(lead);
       } catch (err) { alert(err.message); }
-    });
+      return;
+    }
+
+    // --- Generate Email button ---
+    const emailBtn = e.target.closest(".card-btn--email");
+    if (emailBtn) {
+      handleGenerateEmail(e, emailBtn.dataset.leadId);
+      return;
+    }
+
+    // --- Edit button ---
+    const editBtn = e.target.closest("[data-action='edit']");
+    if (editBtn) {
+      e.stopPropagation();
+      try {
+        const lead = await fetchJson(`/api/leads/${editBtn.dataset.leadId}`);
+        openEditLeadModal(lead);
+      } catch (err) { alert(err.message); }
+      return;
+    }
+
+    // --- Delete button ---
+    const delBtn = e.target.closest("[data-action='delete']");
+    if (delBtn) {
+      e.stopPropagation();
+      handleDeleteClick(delBtn);
+      return;
+    }
+  });
+
+  // Drag-and-drop delegation on the board
+  board.addEventListener("dragenter", (e) => {
+    const col = e.target.closest(".kanban-column");
+    if (col) { e.preventDefault(); col.classList.add("column--drag-over"); }
+  });
+
+  board.addEventListener("dragleave", (e) => {
+    const col = e.target.closest(".kanban-column");
+    if (col && !col.contains(e.relatedTarget)) col.classList.remove("column--drag-over");
+  });
+
+  board.addEventListener("dragover", (e) => {
+    const col = e.target.closest(".kanban-column");
+    if (col) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }
+  });
+
+  board.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    const col = e.target.closest(".kanban-column");
+    if (!col) return;
+    col.classList.remove("column--drag-over");
+    const leadId = e.dataTransfer.getData("text/plain");
+    if (!leadId) return;
+    const newStage = col.dataset.stage;
+    if (!newStage) return;
+    try {
+      await fetchJson(`/api/leads/${leadId}/stage`, { method: "PATCH", body: JSON.stringify({ stage: newStage }) });
+      await loadLeads();
+    } catch (err) { alert(err.message); }
   });
 }
 
 function dismissAllModals() {
   closeEmailModal();
-  closeNotesModal();
+  closeRelationshipModal();
   closeAddLeadModal();
   closeStageSettings();
   closeEditLeadModal();
 }
 
-// Initialize
+// ── Initialize ─────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   populateProfileForm();
   setProfileAriaStates();
+  initGlobalDelegation();
 
   // Profile
   document.getElementById("profile-setup-form")?.addEventListener("submit", (ev) => { void handleProfileFormSubmit(ev); });
@@ -720,54 +803,40 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("close-edit-lead-modal")?.addEventListener("click", closeEditLeadModal);
   document.getElementById("edit-lead-form")?.addEventListener("submit", handleEditLeadSubmit);
 
+  // Relationship modal
+  document.getElementById("close-relationship-modal")?.addEventListener("click", closeRelationshipModal);
+  document.getElementById("rel-edit-btn")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (currentLeadId) {
+      try {
+        const lead = await fetchJson(`/api/leads/${currentLeadId}`);
+        openEditLeadModal(lead);
+      } catch (err) { alert(err.message); }
+    }
+  });
+  document.getElementById("run-research-btn")?.addEventListener("click", handleResearch);
+
+  // Notes auto-save
+  const notesTextarea = document.getElementById("notes-textarea");
+  if (notesTextarea) {
+    notesTextarea.addEventListener("input", () => {
+      autoResizeTextarea(notesTextarea);
+      debouncedSaveNotes();
+    });
+  }
+
   // Stage Settings
   document.getElementById("open-stage-settings")?.addEventListener("click", openStageSettings);
   document.getElementById("close-stage-settings")?.addEventListener("click", closeStageSettings);
   document.getElementById("add-stage-form")?.addEventListener("submit", handleAddStageFormSubmit);
 
-  // Board
-  const board = document.getElementById("kanban-board");
-  if (board) {
-    board.addEventListener("click", (e) => {
-      // Add lead inline button
-      const addBtn = e.target.closest(".add-lead-inline-btn");
-      if (addBtn) {
-        e.preventDefault();
-        openAddLeadModal(addBtn.dataset.stage);
-        return;
-      }
-
-      const notesBtn = e.target.closest(".notes-btn");
-      if (notesBtn) {
-        e.preventDefault();
-        fetchJson(`/api/leads/${notesBtn.dataset.leadId}`).then(lead => openNotesModal(lead)).catch(err => alert(err.message));
-        return;
-      }
-
-      const emailBtn = e.target.closest(".email-btn");
-      if (emailBtn) { e.preventDefault(); handleGenerateEmail(emailBtn); return; }
-
-      const editBtn = e.target.closest(".edit-btn");
-      if (editBtn) {
-        e.preventDefault();
-        fetchJson(`/api/leads/${editBtn.dataset.leadId}`).then(lead => openEditLeadModal(lead)).catch(err => alert(err.message));
-        return;
-      }
-
-      const delBtn = e.target.closest(".delete-btn");
-      if (delBtn) { e.preventDefault(); handleDeleteClick(delBtn); }
-    });
-  }
-
-  // Notes modal
-  document.getElementById("close-notes-modal")?.addEventListener("click", closeNotesModal);
-  document.getElementById("run-research-btn")?.addEventListener("click", handleResearch);
-
   // Email modal
   document.getElementById("close-email-modal")?.addEventListener("click", closeEmailModal);
 
-  // Modal backdrop dismiss
-  document.querySelectorAll("[data-modal-dismiss]").forEach(el => { el.addEventListener("click", dismissAllModals); });
+  // Backdrop dismiss
+  document.querySelectorAll("[data-modal-dismiss]").forEach(el => {
+    el.addEventListener("click", dismissAllModals);
+  });
 
   // Escape key
   document.addEventListener("keydown", (e) => {
