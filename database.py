@@ -17,6 +17,7 @@ DEFAULT_STAGES = [
 
 # PRAGMA user_version: bump when a one-time migration is added.
 _USER_VERSION_DYNAMIC_STAGES = 3
+_USER_VERSION_RESEARCH_COLUMN = 4
 
 DEFAULT_STAGES_DATA = [
     ("Prospecting", 0),
@@ -172,6 +173,11 @@ def init_db() -> None:
                 WHERE id = OLD.id;
             END;
         """)
+
+        # Add research column to leads (migration v4)
+        lead_cols = _table_columns(connection, "leads")
+        if "research" not in lead_cols:
+            connection.execute("ALTER TABLE leads ADD COLUMN research TEXT DEFAULT ''")
 
         # Run migration for dynamic stages
         _migrate_to_dynamic_stages(connection)

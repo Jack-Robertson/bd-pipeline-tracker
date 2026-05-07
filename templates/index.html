@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sales Pipeline Tracker</title>
+    <title>Pipeline — Relationship Workspace</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -16,7 +16,7 @@
     if (raw) {
       var p = JSON.parse(raw);
       function t(v) { return String(v || "").trim(); }
-      ready = !!t(p.userName) && !!t(p.jobTitle) && !!t(p.companyName) && !!t(p.selling);
+      ready = !!t(p.fullName);
     }
   } catch (e) {}
   document.documentElement.classList.toggle("profile-ready", ready);
@@ -24,27 +24,51 @@
     </script>
 </head>
 <body>
-    <!-- Profile Onboarding -->
+    <!-- ── Profile Onboarding ──────────────────────────── -->
     <div id="profile-onboarding" class="profile-onboarding" role="dialog" aria-modal="true" aria-labelledby="profile-onboarding-title">
         <div class="profile-onboarding__panel">
-            <h2 id="profile-onboarding-title" class="profile-onboarding__title">Welcome — set up your workspace</h2>
-            <p class="profile-onboarding__lede">We use this for AI emails and research so outreach sounds like you.</p>
+            <h2 id="profile-onboarding-title" class="profile-onboarding__title">About You</h2>
+            <p class="profile-onboarding__lede">Tell us a bit about yourself. We use this to personalise AI research and writing so outreach sounds like you.</p>
             <form id="profile-setup-form" class="profile-setup-form" novalidate>
                 <div class="form-row">
-                    <label for="profile_user_name">Your name</label>
-                    <input id="profile_user_name" name="userName" type="text" autocomplete="name" required placeholder="Alex Rivera" />
+                    <label for="profile_full_name">Full name *</label>
+                    <input id="profile_full_name" name="fullName" type="text" autocomplete="name" required placeholder="Alex Rivera" />
+                </div>
+                <div class="profile-form-grid">
+                    <div class="form-row">
+                        <label for="profile_role_title">Role / Title</label>
+                        <input id="profile_role_title" name="roleTitle" type="text" autocomplete="organization-title" placeholder="Founder, Engineer, Recruiter…" />
+                    </div>
+                    <div class="form-row">
+                        <label for="profile_organization">Organization</label>
+                        <input id="profile_organization" name="organization" type="text" autocomplete="organization" placeholder="Acme Corp" />
+                    </div>
                 </div>
                 <div class="form-row">
-                    <label for="profile_job_title">Job title</label>
-                    <input id="profile_job_title" name="jobTitle" type="text" autocomplete="organization-title" required placeholder="Account Executive" />
+                    <label for="profile_location">Location</label>
+                    <input id="profile_location" name="location" type="text" placeholder="San Francisco, CA" />
                 </div>
                 <div class="form-row">
-                    <label for="profile_company_name">Company you represent</label>
-                    <input id="profile_company_name" name="companyName" type="text" autocomplete="organization" required placeholder="Northstar SaaS" />
+                    <label for="profile_about">About you</label>
+                    <textarea id="profile_about" name="about" rows="2" placeholder="Brief background, what you're working on…"></textarea>
                 </div>
                 <div class="form-row">
-                    <label for="profile_selling">What you're selling</label>
-                    <textarea id="profile_selling" name="selling" rows="4" required placeholder="e.g. Workforce analytics platform for mid-market HR teams"></textarea>
+                    <label for="profile_goals">Goals / what you're working on</label>
+                    <textarea id="profile_goals" name="goals" rows="2" placeholder="e.g. Building partnerships, raising a round, hiring…"></textarea>
+                </div>
+                <div class="form-row">
+                    <label for="profile_interests">Interests / focus areas</label>
+                    <input id="profile_interests" name="interests" type="text" placeholder="AI, climate, developer tools…" />
+                </div>
+                <div class="form-row">
+                    <label for="profile_style">Communication style</label>
+                    <select id="profile_style" name="communicationStyle">
+                        <option value="">—</option>
+                        <option value="warm and conversational">Warm & conversational</option>
+                        <option value="concise and direct">Concise & direct</option>
+                        <option value="professional">Professional</option>
+                        <option value="technical">Technical</option>
+                    </select>
                 </div>
                 <div class="profile-setup-form__actions">
                     <button type="button" id="profile-cancel-btn" class="btn btn--secondary hidden">Cancel</button>
@@ -54,7 +78,7 @@
         </div>
     </div>
 
-    <!-- Main App Shell -->
+    <!-- ── Main App Shell ──────────────────────────────── -->
     <div id="main-app-shell" class="app-shell">
         <header class="app-header">
             <div class="app-header__inner">
@@ -85,7 +109,6 @@
         <div class="modal-backdrop" data-modal-dismiss></div>
         <div class="modal-dialog modal-dialog--lg" role="document">
             <div class="modal-content">
-                <!-- Header -->
                 <div class="modal-header rel-header">
                     <div class="rel-header__left">
                         <h2 id="rel-modal-title" class="rel-header__company"><span id="rel-company"></span></h2>
@@ -101,7 +124,6 @@
                     </div>
                 </div>
 
-                <!-- Body: Two Columns -->
                 <div class="modal-body rel-body">
                     <div class="rel-grid">
                         <!-- Left: Notes -->
@@ -111,17 +133,27 @@
                             <span id="notes-save-status" class="save-status"></span>
                         </div>
 
-                        <!-- Right: Research + Timeline -->
+                        <!-- Right: AI Tools -->
                         <div class="rel-sidebar">
                             <!-- Research -->
                             <div class="rel-sidebar__section">
                                 <h3>AI Research</h3>
                                 <button type="button" id="run-research-btn" class="btn btn--secondary btn--sm btn--full">Run Research</button>
                                 <div id="research-empty" class="research-placeholder">
-                                    <p>No research yet. Click the button to analyze this lead with AI.</p>
+                                    <p>No research yet. Click to analyse this contact with AI.</p>
                                 </div>
                                 <div id="research-panel" class="research-output hidden">
                                     <div id="research-content"></div>
+                                </div>
+                            </div>
+
+                            <!-- Email Generation -->
+                            <div class="rel-sidebar__section">
+                                <h3>Generate Email</h3>
+                                <button type="button" id="generate-email-btn" class="btn btn--accent btn--sm btn--full">Generate Follow-Up</button>
+                                <div id="email-output-area" class="email-output-area hidden">
+                                    <textarea id="email-output-text" class="email-output-text" readonly rows="6"></textarea>
+                                    <button type="button" id="copy-email-btn" class="btn btn--ghost btn--sm">Copy</button>
                                 </div>
                             </div>
 
@@ -131,18 +163,6 @@
                                 <ul id="timeline-list" class="timeline">
                                     <!-- Populated dynamically -->
                                 </ul>
-                            </div>
-
-                            <!-- Meta -->
-                            <div class="rel-sidebar__section rel-sidebar__section--muted">
-                                <div class="rel-meta-row">
-                                    <span class="rel-meta-label">Created</span>
-                                    <span id="rel-created">—</span>
-                                </div>
-                                <div class="rel-meta-row">
-                                    <span class="rel-meta-label">Last updated</span>
-                                    <span id="rel-updated">—</span>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -157,33 +177,16 @@
         <div class="modal-dialog modal-dialog--sm" role="document">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2 id="add-lead-modal-title">Add New Lead</h2>
+                    <h2 id="add-lead-modal-title">Add Lead</h2>
                     <button type="button" id="close-add-lead-modal" class="modal-close" aria-label="Close">&times;</button>
                 </div>
                 <div class="modal-body">
                     <form id="add-lead-form" novalidate>
-                        <div class="form-row">
-                            <label for="add_company_name">Company</label>
-                            <input id="add_company_name" name="company_name" type="text" required placeholder="Acme Corp" />
-                        </div>
-                        <div class="form-row">
-                            <label for="add_contact_name">Contact Name</label>
-                            <input id="add_contact_name" name="contact_name" type="text" required placeholder="Jane Smith" />
-                        </div>
-                        <div class="form-row">
-                            <label for="add_email">Email</label>
-                            <input id="add_email" name="email" type="email" required placeholder="jane@acme.com" />
-                        </div>
-                        <div class="form-row">
-                            <label for="add_stage">Starting Stage</label>
-                            <select id="add_stage" name="stage">
-                                <!-- Populated dynamically -->
-                            </select>
-                        </div>
-                        <div class="form-row">
-                            <label for="add_notes">Notes (optional)</label>
-                            <textarea id="add_notes" name="notes" rows="3" placeholder="Context, last touch, objections…"></textarea>
-                        </div>
+                        <div class="form-row"><label for="add_company_name">Company</label><input id="add_company_name" name="company_name" type="text" required placeholder="Acme Corp" /></div>
+                        <div class="form-row"><label for="add_contact_name">Contact Name</label><input id="add_contact_name" name="contact_name" type="text" required placeholder="Jane Smith" /></div>
+                        <div class="form-row"><label for="add_email">Email</label><input id="add_email" name="email" type="email" required placeholder="jane@acme.com" /></div>
+                        <div class="form-row"><label for="add_stage">Starting Stage</label><select id="add_stage" name="stage"><!-- Populated dynamically --></select></div>
+                        <div class="form-row"><label for="add_notes">Notes (optional)</label><textarea id="add_notes" name="notes" rows="3" placeholder="Context, last touch…"></textarea></div>
                         <div class="form-actions">
                             <button type="button" id="cancel-add-lead" class="btn btn--secondary">Cancel</button>
                             <button type="submit" class="btn btn--primary">Add Lead</button>
@@ -205,24 +208,10 @@
                 </div>
                 <div class="modal-body">
                     <form id="edit-lead-form" novalidate>
-                        <div class="form-row">
-                            <label for="edit_company_name">Company</label>
-                            <input id="edit_company_name" name="company_name" type="text" required />
-                        </div>
-                        <div class="form-row">
-                            <label for="edit_contact_name">Contact Name</label>
-                            <input id="edit_contact_name" name="contact_name" type="text" required />
-                        </div>
-                        <div class="form-row">
-                            <label for="edit_email">Email</label>
-                            <input id="edit_email" name="email" type="email" required />
-                        </div>
-                        <div class="form-row">
-                            <label for="edit_stage">Stage</label>
-                            <select id="edit_stage" name="stage">
-                                <!-- Populated dynamically -->
-                            </select>
-                        </div>
+                        <div class="form-row"><label for="edit_company_name">Company</label><input id="edit_company_name" name="company_name" type="text" required /></div>
+                        <div class="form-row"><label for="edit_contact_name">Contact Name</label><input id="edit_contact_name" name="contact_name" type="text" required /></div>
+                        <div class="form-row"><label for="edit_email">Email</label><input id="edit_email" name="email" type="email" required /></div>
+                        <div class="form-row"><label for="edit_stage">Stage</label><select id="edit_stage" name="stage"><!-- Populated dynamically --></select></div>
                         <div class="form-actions">
                             <button type="button" id="cancel-edit-lead" class="btn btn--secondary" onclick="closeEditLeadModal()">Cancel</button>
                             <button type="submit" class="btn btn--primary">Save Changes</button>
@@ -243,33 +232,14 @@
                     <button type="button" id="close-stage-settings" class="modal-close" aria-label="Close">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <p class="modal-hint">Use ▲▼ to reorder stages. Click a name to rename. Only empty stages can be deleted.</p>
-                    <ul id="stages-list" class="stages-list" role="list">
-                        <!-- Populated dynamically -->
-                    </ul>
+                    <p class="modal-hint">Use ▲▼ to reorder. Click a name to rename. Only empty stages can be deleted.</p>
+                    <ul id="stages-list" class="stages-list" role="list"><!-- Populated dynamically --></ul>
                     <div class="stage-settings__add">
                         <form id="add-stage-form" class="add-stage-form">
                             <input type="text" id="new-stage-name" placeholder="New stage name" required />
                             <button type="submit" class="btn btn--primary btn--sm">Add Stage</button>
                         </form>
                     </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- ── Email Modal ─────────────────────────────────── -->
-    <section id="email-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="email-modal-title">
-        <div class="modal-backdrop" data-modal-dismiss></div>
-        <div class="modal-dialog" role="document">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 id="email-modal-title">AI Follow-up Email</h2>
-                    <button type="button" id="close-email-modal" class="modal-close" aria-label="Close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <label for="email-draft-output">Draft</label>
-                    <textarea id="email-draft-output" rows="14" readonly placeholder="Generated copy will appear here."></textarea>
                 </div>
             </div>
         </div>

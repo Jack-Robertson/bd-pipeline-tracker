@@ -85,6 +85,11 @@ small { color: var(--color-text-muted); font-size: 0.8125rem; }
 }
 .btn--danger:hover:not(:disabled) { background: var(--color-danger-hover); }
 
+.btn--accent {
+  background: var(--color-accent); color: #fff; border-color: var(--color-accent);
+}
+.btn--accent:hover:not(:disabled) { background: var(--color-accent-hover); }
+
 .btn--sm { padding: 0.375rem 0.75rem; font-size: 0.75rem; }
 
 .btn--full { width: 100%; }
@@ -139,6 +144,13 @@ small { color: var(--color-text-muted); font-size: 0.8125rem; }
 .profile-onboarding__title { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
 .profile-onboarding__lede { font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: 1.5rem; }
 .profile-setup-form__actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+
+.profile-form-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem;
+}
+@media (max-width: 480px) {
+  .profile-form-grid { grid-template-columns: 1fr; }
+}
 
 /* ── App Shell ──────────────────────────────────────── */
 .app-shell { display: flex; flex-direction: column; min-height: 100vh; }
@@ -311,12 +323,6 @@ small { color: var(--color-text-muted); font-size: 0.8125rem; }
 }
 .card-btn:hover { background: var(--color-bg); border-color: var(--color-text-muted); }
 
-.card-btn--email {
-  background: var(--color-accent); color: #fff; border-color: var(--color-accent);
-  flex: 1; justify-content: center;
-}
-.card-btn--email:hover { background: var(--color-accent-hover); }
-
 .card-btn--icon {
   padding: 0.25rem 0.4rem; font-size: 0.8125rem; background: transparent;
   border-color: transparent; color: var(--color-text-muted);
@@ -324,6 +330,23 @@ small { color: var(--color-text-muted); font-size: 0.8125rem; }
 }
 .card-btn--icon:hover { opacity: 1; background: var(--color-border-light); }
 .card-btn--danger:hover { color: var(--color-danger); }
+
+/* Email output in workspace */
+.email-output-area {
+  margin-top: 0.5rem;
+  display: flex; flex-direction: column; gap: 0.375rem;
+}
+
+.email-output-text {
+  width: 100%; min-height: 120px; padding: 0.625rem;
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  font-family: inherit; font-size: 0.8125rem; line-height: 1.55;
+  color: var(--color-text); resize: vertical; background: var(--color-bg);
+}
+
+.lead-card__activity {
+  font-size: 0.6875rem; color: var(--color-text-muted);
+}
 
 /* ── Modal ──────────────────────────────────────────── */
 .modal {
@@ -527,14 +550,6 @@ small { color: var(--color-text-muted); font-size: 0.8125rem; }
 .add-stage-form { display: flex; gap: 0.5rem; }
 .add-stage-form input { flex: 1; }
 .add-stage-form input:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(59,130,246,0.12); }
-
-/* ── Email Output ───────────────────────────────────── */
-#email-draft-output {
-  width: 100%; min-height: 300px; padding: 0.75rem;
-  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
-  font-family: inherit; font-size: 0.875rem; line-height: 1.65;
-  resize: vertical; background: var(--color-bg);
-}
 
 /* ── Responsive ─────────────────────────────────────── */
 @media (max-width: 768px) {
