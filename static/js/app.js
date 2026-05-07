@@ -1,5 +1,7 @@
 /**
  * Sales Pipeline Tracker — Relationship Workspace Edition
+ * Stabilization pass: fixed modal selectors, replaced stage drag with arrows,
+ * hardened event delegation.
  */
 
 const PROFILE_STORAGE_KEY = "pipelineUserProfile";
@@ -9,10 +11,12 @@ let stages = [];
 let currentLeadId = null;
 let currentLeadData = null;
 let saveTimer = null;
-let stageSettingsInitialized = false;
 
 const STAGE_COLORS = ["#64748b", "#0d9488", "#d97706", "#7c3aed", "#059669"];
 function getStageColor(pos) { return STAGE_COLORS[pos % STAGE_COLORS.length]; }
+
+// ── DOM safe access ───────────────────────────────────
+function $id(id) { return document.getElementById(id); }
 
 // ── Profile ────────────────────────────────────────────
 function normalizeProfile(obj) {
@@ -33,7 +37,6 @@ function loadUserProfile() {
 }
 
 function saveUserProfile(p) { localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(p)); }
-
 function isProfileComplete(p) { return !!(p && p.userName && p.jobTitle && p.companyName && p.selling); }
 
 function getUserContextForApi() {
@@ -43,7 +46,7 @@ function getUserContextForApi() {
 }
 
 function setProfileAriaStates() {
-  const overlay = document.getElementById("profile-onboarding");
+  const overlay = $id("profile-onboarding");
   if (!overlay) return;
   const ready = document.documentElement.classList.contains("profile-ready");
   const editing = overlay.classList.contains("profile-onboarding--edit-open");
@@ -53,31 +56,31 @@ function setProfileAriaStates() {
 function populateProfileForm() {
   const p = loadUserProfile();
   const map = { profile_user_name: "userName", profile_job_title: "jobTitle", profile_company_name: "companyName", profile_selling: "selling" };
-  Object.entries(map).forEach(([id, key]) => { const el = document.getElementById(id); if (el) el.value = p?.[key] || ""; });
+  Object.entries(map).forEach(([id, key]) => { const el = $id(id); if (el) el.value = p?.[key] || ""; });
 }
 
 function openProfileEditorFromHeader() {
   populateProfileForm();
-  const overlay = document.getElementById("profile-onboarding");
+  const overlay = $id("profile-onboarding");
   overlay?.classList.add("profile-onboarding--edit-open");
-  document.getElementById("profile-cancel-btn")?.classList.remove("hidden");
-  const titleEl = document.getElementById("profile-onboarding-title");
+  $id("profile-cancel-btn")?.classList.remove("hidden");
+  const titleEl = $id("profile-onboarding-title");
   if (titleEl) titleEl.textContent = "Edit your profile";
-  const saveBtn = document.getElementById("profile-save-btn");
+  const saveBtn = $id("profile-save-btn");
   if (saveBtn) saveBtn.textContent = "Save";
   setProfileAriaStates();
 }
 
 function closeProfileEditor() {
   populateProfileForm();
-  document.getElementById("profile-onboarding")?.classList.remove("profile-onboarding--edit-open");
-  document.getElementById("profile-cancel-btn")?.classList.add("hidden");
+  $id("profile-onboarding")?.classList.remove("profile-onboarding--edit-open");
+  $id("profile-cancel-btn")?.classList.add("hidden");
   setProfileAriaStates();
 }
 
 async function handleProfileFormSubmit(ev) {
   ev.preventDefault();
-  const form = document.getElementById("profile-setup-form");
+  const form = $id("profile-setup-form");
   if (!form) return;
   const profile = { userName: form.userName.value.trim(), jobTitle: form.jobTitle.value.trim(), companyName: form.companyName.value.trim(), selling: form.selling.value.trim() };
   if (!isProfileComplete(profile)) { alert("Please fill in all fields."); return; }
@@ -105,9 +108,7 @@ function formatDate(dateStr) {
   if (!dateStr) return "";
   const date = new Date(dateStr);
   const diff = Date.now() - date;
-  const m = Math.floor(diff / 60000);
-  const h = Math.floor(diff / 3600000);
-  const d = Math.floor(diff / 86400000);
+  const m = Math.floor(diff / 60000), h = Math.floor(diff / 3600000), d = Math.floor(diff / 86400000);
   if (m < 1) return "just now";
   if (m < 60) return `${m}m ago`;
   if (h < 24) return `${h}h ago`;
@@ -187,7 +188,7 @@ function populateStageDropdowns(preselectedStage) {
 
 // ── Board ──────────────────────────────────────────────
 function buildBoard() {
-  const board = document.getElementById("kanban-board");
+  const board = $id("kanban-board");
   if (!board) return;
   board.innerHTML = "";
   stages.forEach((stage, index) => {
@@ -257,13 +258,13 @@ function createLeadCard(lead, stagePosition) {
       ${updated ? `<span class="lead-card__updated">${updated}</span>` : ""}
     </div>
     <div class="lead-card__actions">
-      <button type="button" class="card-btn card-btn--email" data-lead-id="${lead.id}" title="Generate email">✉️ Generate Email</button>
+      <button type="button" class="card-btn card-btn--email" data-action="email" data-lead-id="${lead.id}" title="Generate email">✉️ Generate Email</button>
       <button type="button" class="card-btn card-btn--icon" data-action="edit" data-lead-id="${lead.id}" title="Edit lead">✏️</button>
       <button type="button" class="card-btn card-btn--icon card-btn--danger" data-action="delete" data-lead-id="${lead.id}" title="Delete">🗑️</button>
     </div>
   `;
 
-  // Drag start/end on card
+  // Drag handlers
   article.addEventListener("dragstart", (e) => {
     e.dataTransfer.setData("text/plain", String(lead.id));
     e.dataTransfer.effectAllowed = "move";
@@ -327,36 +328,41 @@ function openRelationshipModal(lead) {
   currentLeadId = lead.id;
   currentLeadData = lead;
 
-  const modal = document.getElementById("relationship-modal");
-  const textarea = document.getElementById("notes-textarea");
-  const saveStatus = document.getElementById("notes-save-status");
-  const researchPanel = document.getElementById("research-panel");
-  const researchEmpty = document.getElementById("research-empty");
-  const timeline = document.getElementById("timeline-list");
-
+  const modal = $id("relationship-modal");
+  const textarea = $id("notes-textarea");
   if (!modal || !textarea) return;
 
-  // Header
-  document.getElementById("rel-company").textContent = lead.company_name;
-  document.getElementById("rel-contact").textContent = lead.contact_name;
-  document.getElementById("rel-stage").textContent = lead.stage;
-  document.getElementById("rel-stage").className = "badge badge--stage";
-  document.getElementById("rel-email").textContent = lead.email;
-  document.getElementById("rel-email").href = `mailto:${lead.email}`;
-  document.getElementById("rel-created").textContent = formatFullDate(lead.created_at);
-  document.getElementById("rel-updated").textContent = formatFullDate(lead.updated_at);
+  // Header — all selectors now reference actual IDs in the HTML
+  const elCompany = $id("rel-company");
+  const elContact = $id("rel-contact");
+  const elStage = $id("rel-stage");
+  const elEmail = $id("rel-email");
+  const elCreated = $id("rel-created");
+  const elUpdated = $id("rel-updated");
+  const researchPanel = $id("research-panel");
+  const researchEmpty = $id("research-empty");
+  const researchContent = $id("research-content");
+  const timeline = $id("timeline-list");
+  const editBtn = $id("rel-edit-btn");
+
+  if (elCompany) elCompany.textContent = lead.company_name;
+  if (elContact) elContact.textContent = lead.contact_name;
+  if (elStage) { elStage.textContent = lead.stage; elStage.className = "badge badge--stage"; }
+  if (elEmail) { elEmail.textContent = lead.email; elEmail.href = `mailto:${lead.email}`; }
+  if (elCreated) elCreated.textContent = formatFullDate(lead.created_at);
+  if (elUpdated) elUpdated.textContent = formatFullDate(lead.updated_at);
 
   // Notes
   textarea.value = lead.notes || "";
   textarea.style.height = "auto";
   textarea.style.height = textarea.scrollHeight + "px";
+  const saveStatus = $id("notes-save-status");
   if (saveStatus) saveStatus.textContent = "";
 
   // Research
-  researchPanel.classList.add("hidden");
-  researchEmpty?.classList.remove("hidden");
-  document.getElementById("research-content").innerHTML = "";
-  document.getElementById("research-content").dataset.researchText = "";
+  if (researchPanel) researchPanel.classList.add("hidden");
+  if (researchEmpty) researchEmpty.classList.remove("hidden");
+  if (researchContent) { researchContent.innerHTML = ""; researchContent.dataset.researchText = ""; }
 
   // Timeline placeholder
   if (timeline) {
@@ -365,7 +371,7 @@ function openRelationshipModal(lead) {
         <span class="timeline-dot"></span>
         <div><strong>Lead created</strong><br/><small>${formatFullDate(lead.created_at)}</small></div>
       </li>
-      ${lead.updated_at !== lead.created_at ? `
+      ${lead.updated_at && lead.updated_at !== lead.created_at ? `
       <li class="timeline-item">
         <span class="timeline-dot"></span>
         <div><strong>Last updated</strong><br/><small>${formatFullDate(lead.updated_at)}</small></div>
@@ -377,8 +383,6 @@ function openRelationshipModal(lead) {
     `;
   }
 
-  // Edit button in header
-  const editBtn = document.getElementById("rel-edit-btn");
   if (editBtn) editBtn.dataset.leadId = lead.id;
 
   modal.classList.remove("hidden");
@@ -386,10 +390,8 @@ function openRelationshipModal(lead) {
 }
 
 function closeRelationshipModal() {
-  // Flush any pending auto-save
   flushAutoSave();
-
-  const modal = document.getElementById("relationship-modal");
+  const modal = $id("relationship-modal");
   if (!modal) return;
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
@@ -400,7 +402,7 @@ function closeRelationshipModal() {
 // ── Auto-save ──────────────────────────────────────────
 function debouncedSaveNotes() {
   if (saveTimer) clearTimeout(saveTimer);
-  const status = document.getElementById("notes-save-status");
+  const status = $id("notes-save-status");
   if (status) { status.textContent = "Saving…"; status.className = "save-status save-status--saving"; }
   saveTimer = setTimeout(() => flushAutoSave(), 800);
 }
@@ -409,19 +411,15 @@ async function flushAutoSave() {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   if (!currentLeadId) return;
 
-  const textarea = document.getElementById("notes-textarea");
+  const textarea = $id("notes-textarea");
   if (!textarea) return;
 
   const content = textarea.value;
-  const status = document.getElementById("notes-save-status");
+  const status = $id("notes-save-status");
 
   try {
-    await fetchJson(`/api/leads/${currentLeadId}/notes`, {
-      method: "PATCH",
-      body: JSON.stringify({ content }),
-    });
+    await fetchJson(`/api/leads/${currentLeadId}/notes`, { method: "PATCH", body: JSON.stringify({ content }) });
     if (status) { status.textContent = "Saved"; status.className = "save-status save-status--saved"; }
-    // Update local data
     if (currentLeadData) currentLeadData.notes = content;
     await loadLeads();
   } catch (err) {
@@ -430,7 +428,6 @@ async function flushAutoSave() {
   }
 }
 
-// Auto-resize textarea
 function autoResizeTextarea(el) {
   el.style.height = "auto";
   el.style.height = el.scrollHeight + "px";
@@ -442,53 +439,53 @@ async function handleResearch() {
   const uc = getUserContextForApi();
   if (!uc) { alert("Please complete your profile before using AI research."); return; }
 
-  const btn = document.getElementById("run-research-btn");
-  const empty = document.getElementById("research-empty");
-  const panel = document.getElementById("research-panel");
-  const content = document.getElementById("research-content");
+  const btn = $id("run-research-btn");
+  const empty = $id("research-empty");
+  const panel = $id("research-panel");
+  const content = $id("research-content");
 
   if (btn) { btn.disabled = true; btn.textContent = "Researching…"; }
   if (empty) empty.classList.add("hidden");
 
   try {
-    const result = await fetchJson(`/api/leads/${currentLeadId}/research`, {
-      method: "POST",
-      body: JSON.stringify({ user_context: uc }),
-    });
-    panel.classList.remove("hidden");
-    content.innerHTML = parseResearchOutput(result.research);
-    content.dataset.researchText = result.research;
-  } catch (err) { alert(err.message); if (empty) empty.classList.remove("hidden"); }
+    const result = await fetchJson(`/api/leads/${currentLeadId}/research`, { method: "POST", body: JSON.stringify({ user_context: uc }) });
+    if (panel) panel.classList.remove("hidden");
+    if (content) {
+      content.innerHTML = parseResearchOutput(result.research);
+      content.dataset.researchText = result.research;
+    }
+  } catch (err) {
+    alert(err.message);
+    if (empty) empty.classList.remove("hidden");
+  }
   finally { if (btn) { btn.disabled = false; btn.textContent = "Run Research"; } }
 }
 
 function parseResearchOutput(text) {
   const sections = { whatTheyDo: "", contactRole: "", painPoints: [], talkingPoints: [] };
-  let currentSection = null;
-
+  let cur = null;
   text.split("\n").forEach(line => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    if (trimmed.startsWith("• What they do:")) { sections.whatTheyDo = trimmed.replace(/^•\s*What they do:\s*/, ""); currentSection = "whatTheyDo"; }
-    else if (trimmed.startsWith("• Contact's role:")) { sections.contactRole = trimmed.replace(/^•\s*Contact's role:\s*/, ""); currentSection = "contactRole"; }
-    else if (trimmed.startsWith("• Their likely pain points:")) { currentSection = "painPoints"; }
-    else if (trimmed.startsWith("• Talking points:")) { currentSection = "talkingPoints"; }
-    else if (trimmed.startsWith("- ") && currentSection === "painPoints") { sections.painPoints.push(trimmed.substring(2)); }
-    else if (trimmed.startsWith("- ") && currentSection === "talkingPoints") { sections.talkingPoints.push(trimmed.substring(2)); }
+    const t = line.trim();
+    if (!t) return;
+    if (t.startsWith("• What they do:")) { sections.whatTheyDo = t.replace(/^•\s*What they do:\s*/, ""); cur = "whatTheyDo"; }
+    else if (t.startsWith("• Contact's role:")) { sections.contactRole = t.replace(/^•\s*Contact's role:\s*/, ""); cur = "contactRole"; }
+    else if (t.startsWith("• Their likely pain points:")) { cur = "painPoints"; }
+    else if (t.startsWith("• Talking points:")) { cur = "talkingPoints"; }
+    else if (t.startsWith("- ") && cur === "painPoints") { sections.painPoints.push(t.substring(2)); }
+    else if (t.startsWith("- ") && cur === "talkingPoints") { sections.talkingPoints.push(t.substring(2)); }
   });
-
   let html = "";
   if (sections.whatTheyDo) html += `<h4>What they do</h4><p>${escapeHtml(sections.whatTheyDo)}</p>`;
   if (sections.contactRole) html += `<h4>Contact's role</h4><p>${escapeHtml(sections.contactRole)}</p>`;
-  if (sections.painPoints.length > 0) html += `<h4>Pain points</h4><ul>${sections.painPoints.map(p => `<li>${escapeHtml(p)}</li>`).join("")}</ul>`;
-  if (sections.talkingPoints.length > 0) html += `<h4>Talking points</h4><ul>${sections.talkingPoints.map(t => `<li>${escapeHtml(t)}</li>`).join("")}</ul>`;
+  if (sections.painPoints.length) html += `<h4>Pain points</h4><ul>${sections.painPoints.map(p => `<li>${escapeHtml(p)}</li>`).join("")}</ul>`;
+  if (sections.talkingPoints.length) html += `<h4>Talking points</h4><ul>${sections.talkingPoints.map(t => `<li>${escapeHtml(t)}</li>`).join("")}</ul>`;
   return html || `<p>${escapeHtml(text)}</p>`;
 }
 
 // ── Email Modal ────────────────────────────────────────
 function openEmailModal(draft) {
-  const modal = document.getElementById("email-modal");
-  const output = document.getElementById("email-draft-output");
+  const modal = $id("email-modal");
+  const output = $id("email-draft-output");
   if (!modal || !output) return;
   output.value = draft || "";
   modal.classList.remove("hidden");
@@ -496,11 +493,11 @@ function openEmailModal(draft) {
 }
 
 function closeEmailModal() {
-  const modal = document.getElementById("email-modal");
+  const modal = $id("email-modal");
   if (!modal) return;
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
-  const output = document.getElementById("email-draft-output");
+  const output = $id("email-draft-output");
   if (output) output.value = "";
 }
 
@@ -519,11 +516,14 @@ async function handleGenerateEmail(e, leadId) {
 
 // ── Edit Lead ──────────────────────────────────────────
 function openEditLeadModal(lead) {
-  const modal = document.getElementById("edit-lead-modal");
+  const modal = $id("edit-lead-modal");
   if (!modal) return;
-  document.getElementById("edit_company_name").value = lead.company_name || "";
-  document.getElementById("edit_contact_name").value = lead.contact_name || "";
-  document.getElementById("edit_email").value = lead.email || "";
+  const elCompany = $id("edit_company_name");
+  const elContact = $id("edit_contact_name");
+  const elEmail = $id("edit_email");
+  if (elCompany) elCompany.value = lead.company_name || "";
+  if (elContact) elContact.value = lead.contact_name || "";
+  if (elEmail) elEmail.value = lead.email || "";
   populateStageDropdowns(lead.stage);
   modal.dataset.leadId = lead.id;
   modal.classList.remove("hidden");
@@ -531,7 +531,7 @@ function openEditLeadModal(lead) {
 }
 
 function closeEditLeadModal() {
-  const modal = document.getElementById("edit-lead-modal");
+  const modal = $id("edit-lead-modal");
   if (!modal) return;
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
@@ -539,27 +539,26 @@ function closeEditLeadModal() {
 
 async function handleEditLeadSubmit(event) {
   event.preventDefault();
-  const modal = document.getElementById("edit-lead-modal");
+  const modal = $id("edit-lead-modal");
+  if (!modal) return;
   const leadId = modal.dataset.leadId;
   if (!leadId) return;
   const payload = {
-    company_name: document.getElementById("edit_company_name").value.trim(),
-    contact_name: document.getElementById("edit_contact_name").value.trim(),
-    email: document.getElementById("edit_email").value.trim(),
-    stage: document.getElementById("edit_stage").value,
+    company_name: ($id("edit_company_name")?.value || "").trim(),
+    contact_name: ($id("edit_contact_name")?.value || "").trim(),
+    email: ($id("edit_email")?.value || "").trim(),
+    stage: $id("edit_stage")?.value || "",
   };
   try {
     await fetchJson(`/api/leads/${leadId}`, { method: "PATCH", body: JSON.stringify(payload) });
     closeEditLeadModal();
-    // If relationship modal is open, close it to refresh
-    closeRelationshipModal();
     await loadLeads();
   } catch (err) { alert(err.message); }
 }
 
 // ── Add Lead Modal ─────────────────────────────────────
 function openAddLeadModal(preselectedStage) {
-  const modal = document.getElementById("add-lead-modal");
+  const modal = $id("add-lead-modal");
   if (!modal) return;
   populateStageDropdowns(preselectedStage);
   modal.classList.remove("hidden");
@@ -567,38 +566,34 @@ function openAddLeadModal(preselectedStage) {
 }
 
 function closeAddLeadModal() {
-  const modal = document.getElementById("add-lead-modal");
+  const modal = $id("add-lead-modal");
   if (!modal) return;
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
-  document.getElementById("add-lead-form")?.reset();
+  $id("add-lead-form")?.reset();
 }
 
-// ── Stage Settings ─────────────────────────────────────
+// ── Stage Settings (arrow buttons — no drag/drop) ──────
 function openStageSettings() {
-  const modal = document.getElementById("stage-settings-modal");
+  const modal = $id("stage-settings-modal");
   if (!modal) return;
-  if (!stageSettingsInitialized) {
-    renderStageSettingsList();
-    stageSettingsInitialized = true;
-  }
+  renderStageSettingsList();
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
 }
 
 function closeStageSettings() {
-  const modal = document.getElementById("stage-settings-modal");
+  const modal = $id("stage-settings-modal");
   if (!modal) return;
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
 }
 
 function renderStageSettingsList() {
-  const list = document.getElementById("stages-list");
+  const list = $id("stages-list");
   if (!list) return;
 
-  const newList = list.cloneNode(false);
-  list.parentNode.replaceChild(newList, list);
+  list.innerHTML = "";
 
   fetchJson("/api/leads").then(leads => {
     const counts = {};
@@ -608,20 +603,25 @@ function renderStageSettingsList() {
       const li = document.createElement("li");
       li.className = "stage-item";
       li.dataset.stageId = stage.id;
-      li.draggable = true;
 
       const color = getStageColor(index);
       const leadCount = counts[stage.name] || 0;
       const canDelete = leadCount === 0;
+      const isFirst = index === 0;
+      const isLast = index === stages.length - 1;
 
       li.innerHTML = `
-        <span class="stage-item__handle" title="Drag to reorder">⋮⋮</span>
         <span class="stage-item__dot" style="background:${color}"></span>
         <input type="text" class="stage-item__input" value="${escapeHtml(stage.name)}" data-stage-id="${stage.id}" />
         <span class="stage-item__count">${leadCount} lead${leadCount !== 1 ? "s" : ""}</span>
+        <div class="stage-item__arrows">
+          <button type="button" class="stage-arrow stage-arrow--up" data-stage-id="${stage.id}" title="Move up" ${isFirst ? "disabled" : ""}>▲</button>
+          <button type="button" class="stage-arrow stage-arrow--down" data-stage-id="${stage.id}" title="Move down" ${isLast ? "disabled" : ""}>▼</button>
+        </div>
         <button type="button" class="stage-item__delete" data-stage-id="${stage.id}" ${!canDelete ? "disabled" : ""} title="${canDelete ? "Delete stage" : "Move leads first"}">🗑️</button>
       `;
 
+      // Rename on blur
       const input = li.querySelector(".stage-item__input");
       input.addEventListener("blur", () => {
         const newName = input.value.trim();
@@ -630,51 +630,46 @@ function renderStageSettingsList() {
       });
       input.addEventListener("keydown", (e) => { if (e.key === "Enter") input.blur(); });
 
+      // Delete
       li.querySelector(".stage-item__delete").addEventListener("click", () => {
         if (canDelete) handleDeleteStage(stage.id);
       });
 
-      // Stage drag with drop indicator
-      li.addEventListener("dragstart", (e) => {
-        li.classList.add("stage-item--dragging");
-        e.dataTransfer.setData("text/stage-id", String(stage.id));
-        e.dataTransfer.effectAllowed = "move";
+      // Arrow buttons
+      li.querySelector(".stage-arrow--up").addEventListener("click", () => {
+        if (index > 0) moveStage(stage.id, index - 1);
       });
-      li.addEventListener("dragend", () => {
-        li.classList.remove("stage-item--dragging");
-        newList.querySelectorAll(".stage-item--over").forEach(el => el.classList.remove("stage-item--over"));
-        // Commit reorder
-        const items = newList.querySelectorAll(".stage-item");
-        const order = Array.from(items).map(item => parseInt(item.dataset.stageId));
-        handleReorderStages(order);
-      });
-      li.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        const dragging = newList.querySelector(".stage-item--dragging");
-        if (!dragging || dragging === li) return;
-        newList.querySelectorAll(".stage-item--over").forEach(el => el.classList.remove("stage-item--over"));
-        li.classList.add("stage-item--over");
-        const rect = li.getBoundingClientRect();
-        const mid = rect.top + rect.height / 2;
-        if (e.clientY < mid) {
-          newList.insertBefore(dragging, li);
-        } else {
-          newList.insertBefore(dragging, li.nextSibling);
-        }
-      });
-      li.addEventListener("dragleave", () => {
-        li.classList.remove("stage-item--over");
+      li.querySelector(".stage-arrow--down").addEventListener("click", () => {
+        if (index < stages.length - 1) moveStage(stage.id, index + 1);
       });
 
-      newList.appendChild(li);
+      list.appendChild(li);
     });
   }).catch(err => console.error("Failed to load leads for stage settings:", err));
 }
 
+async function moveStage(stageId, newIndex) {
+  const currentIndex = stages.findIndex(s => s.id === stageId);
+  if (currentIndex === -1) return;
+
+  // Reorder local array
+  const [moved] = stages.splice(currentIndex, 1);
+  stages.splice(newIndex, 0, moved);
+
+  // Persist
+  const order = stages.map(s => s.id);
+  try {
+    await fetchJson("/api/stages/reorder", { method: "POST", body: JSON.stringify({ order }) });
+    await buildBoard();
+    await loadLeads();
+    renderStageSettingsList();
+  } catch (err) { alert(err.message); }
+}
+
 async function handleAddStageFormSubmit(event) {
   event.preventDefault();
-  const input = document.getElementById("new-stage-name");
+  const input = $id("new-stage-name");
+  if (!input) return;
   const name = input.value.trim();
   if (name) {
     await handleAddStage(name);
@@ -684,12 +679,12 @@ async function handleAddStageFormSubmit(event) {
 
 // ── Global event delegation ────────────────────────────
 function initGlobalDelegation() {
-  const board = document.getElementById("kanban-board");
+  const board = $id("kanban-board");
   if (!board) return;
 
-  // Click delegation (only set up once)
+  // Click delegation
   board.addEventListener("click", async (e) => {
-    // --- Add Lead button ---
+    // Add Lead button
     const addBtn = e.target.closest(".add-lead-btn") || e.target.closest(".add-lead-area");
     if (addBtn) {
       e.preventDefault();
@@ -698,10 +693,10 @@ function initGlobalDelegation() {
       return;
     }
 
-    // --- Lead card click → open relationship modal ---
+    // Lead card click → open relationship workspace
     const card = e.target.closest(".lead-card");
     if (card) {
-      // Don't open modal if clicking a button inside the card
+      // If the click is on a button or link, let that action handle it
       if (e.target.closest("button") || e.target.closest("a")) return;
       e.preventDefault();
       try {
@@ -711,14 +706,14 @@ function initGlobalDelegation() {
       return;
     }
 
-    // --- Generate Email button ---
-    const emailBtn = e.target.closest(".card-btn--email");
+    // Generate Email button
+    const emailBtn = e.target.closest("[data-action='email']");
     if (emailBtn) {
       handleGenerateEmail(e, emailBtn.dataset.leadId);
       return;
     }
 
-    // --- Edit button ---
+    // Edit button
     const editBtn = e.target.closest("[data-action='edit']");
     if (editBtn) {
       e.stopPropagation();
@@ -729,7 +724,7 @@ function initGlobalDelegation() {
       return;
     }
 
-    // --- Delete button ---
+    // Delete button
     const delBtn = e.target.closest("[data-action='delete']");
     if (delBtn) {
       e.stopPropagation();
@@ -738,22 +733,19 @@ function initGlobalDelegation() {
     }
   });
 
-  // Drag-and-drop delegation on the board
+  // Drag-and-drop delegation
   board.addEventListener("dragenter", (e) => {
     const col = e.target.closest(".kanban-column");
     if (col) { e.preventDefault(); col.classList.add("column--drag-over"); }
   });
-
   board.addEventListener("dragleave", (e) => {
     const col = e.target.closest(".kanban-column");
     if (col && !col.contains(e.relatedTarget)) col.classList.remove("column--drag-over");
   });
-
   board.addEventListener("dragover", (e) => {
     const col = e.target.closest(".kanban-column");
     if (col) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }
   });
-
   board.addEventListener("drop", async (e) => {
     e.preventDefault();
     const col = e.target.closest(".kanban-column");
@@ -785,27 +777,27 @@ document.addEventListener("DOMContentLoaded", () => {
   initGlobalDelegation();
 
   // Profile
-  document.getElementById("profile-setup-form")?.addEventListener("submit", (ev) => { void handleProfileFormSubmit(ev); });
-  document.getElementById("profile-cancel-btn")?.addEventListener("click", closeProfileEditor);
-  document.getElementById("open-profile-setup")?.addEventListener("click", openProfileEditorFromHeader);
-  document.getElementById("profile-onboarding")?.addEventListener("click", (ev) => {
+  $id("profile-setup-form")?.addEventListener("submit", (ev) => { void handleProfileFormSubmit(ev); });
+  $id("profile-cancel-btn")?.addEventListener("click", closeProfileEditor);
+  $id("open-profile-setup")?.addEventListener("click", openProfileEditorFromHeader);
+  $id("profile-onboarding")?.addEventListener("click", (ev) => {
     if (ev.target !== ev.currentTarget) return;
     if (document.documentElement.classList.contains("profile-ready")) closeProfileEditor();
   });
 
-  // Add Lead modal
-  document.getElementById("open-add-lead-modal")?.addEventListener("click", () => openAddLeadModal());
-  document.getElementById("close-add-lead-modal")?.addEventListener("click", closeAddLeadModal);
-  document.getElementById("cancel-add-lead")?.addEventListener("click", closeAddLeadModal);
-  document.getElementById("add-lead-form")?.addEventListener("submit", handleAddLeadSubmit);
+  // Add Lead
+  $id("open-add-lead-modal")?.addEventListener("click", () => openAddLeadModal());
+  $id("close-add-lead-modal")?.addEventListener("click", closeAddLeadModal);
+  $id("cancel-add-lead")?.addEventListener("click", closeAddLeadModal);
+  $id("add-lead-form")?.addEventListener("submit", handleAddLeadSubmit);
 
-  // Edit Lead modal
-  document.getElementById("close-edit-lead-modal")?.addEventListener("click", closeEditLeadModal);
-  document.getElementById("edit-lead-form")?.addEventListener("submit", handleEditLeadSubmit);
+  // Edit Lead
+  $id("close-edit-lead-modal")?.addEventListener("click", closeEditLeadModal);
+  $id("edit-lead-form")?.addEventListener("submit", handleEditLeadSubmit);
 
   // Relationship modal
-  document.getElementById("close-relationship-modal")?.addEventListener("click", closeRelationshipModal);
-  document.getElementById("rel-edit-btn")?.addEventListener("click", async (e) => {
+  $id("close-relationship-modal")?.addEventListener("click", closeRelationshipModal);
+  $id("rel-edit-btn")?.addEventListener("click", async (e) => {
     e.preventDefault();
     if (currentLeadId) {
       try {
@@ -814,10 +806,10 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (err) { alert(err.message); }
     }
   });
-  document.getElementById("run-research-btn")?.addEventListener("click", handleResearch);
+  $id("run-research-btn")?.addEventListener("click", handleResearch);
 
   // Notes auto-save
-  const notesTextarea = document.getElementById("notes-textarea");
+  const notesTextarea = $id("notes-textarea");
   if (notesTextarea) {
     notesTextarea.addEventListener("input", () => {
       autoResizeTextarea(notesTextarea);
@@ -826,12 +818,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Stage Settings
-  document.getElementById("open-stage-settings")?.addEventListener("click", openStageSettings);
-  document.getElementById("close-stage-settings")?.addEventListener("click", closeStageSettings);
-  document.getElementById("add-stage-form")?.addEventListener("submit", handleAddStageFormSubmit);
+  $id("open-stage-settings")?.addEventListener("click", openStageSettings);
+  $id("close-stage-settings")?.addEventListener("click", closeStageSettings);
+  $id("add-stage-form")?.addEventListener("submit", handleAddStageFormSubmit);
 
   // Email modal
-  document.getElementById("close-email-modal")?.addEventListener("click", closeEmailModal);
+  $id("close-email-modal")?.addEventListener("click", closeEmailModal);
 
   // Backdrop dismiss
   document.querySelectorAll("[data-modal-dismiss]").forEach(el => {
@@ -841,12 +833,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // Escape key
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    const overlay = document.getElementById("profile-onboarding");
+    const overlay = $id("profile-onboarding");
     if (overlay?.classList.contains("profile-onboarding--edit-open")) { closeProfileEditor(); e.preventDefault(); return; }
     dismissAllModals();
   });
 
-  // Init
+  // Init board
   if (document.documentElement.classList.contains("profile-ready")) {
     void loadAllData();
   }
