@@ -422,6 +422,7 @@ Guidelines:
     return jsonify({"lead_id": lead_id, "draft": email_text}), 200
 
 
+init_db()
+
 if __name__ == "__main__":
-    init_db()
     app.run(debug=True)

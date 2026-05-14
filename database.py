@@ -2,8 +2,16 @@ import sqlite3
 from pathlib import Path
 
 
+import os
+
 BASE_DIR = Path(__file__).resolve().parent
-DB_DIR = BASE_DIR / "instance"
+
+# Use /tmp on Render (writable), fall back to local instance/ for development
+if os.environ.get("RENDER"):
+    DB_DIR = Path("/tmp")
+else:
+    DB_DIR = BASE_DIR / "instance"
+
 DB_PATH = DB_DIR / "pipeline.db"
 
 # Default stages for seeding
