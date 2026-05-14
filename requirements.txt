@@ -1,3 +1,4 @@
 flask>=3.0,<4
 groq>=0.9,<1
 python-dotenv>=1.0,<2
+gunicorn
